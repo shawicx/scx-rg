@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"scx-rg/internal/search"
 )
 
 // Update 处理窗口变化、防抖到期、搜索/预览回包与按键。
@@ -49,9 +51,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchErr = msg.err
 		m.results = msg.results
 		m.sel, m.offset = 0, 0
-		m.vp.SetContent("")
-		m.prevPath = ""
 		return m, m.followSelection()
+
+	case resultMsg:
+		if msg.version != m.version {
+			return m, nil // 过期结果
+		}
+		first := len(m.results) == 0
+		m.results = append(m.results, msg.result)
+		var cmds []tea.Cmd
+		if first {
+			cmds = append(cmds, m.followSelection()) // 首条结果到达时让预览跟上
+		}
+		if len(m.results) >= search.MaxResults {
+			m.stopSearch() // 封顶：杀掉 rg，剩余结果丢弃
+		} else {
+			cmds = append(cmds, m.waitForResult(m.streamCh, msg.version))
+		}
+		return m, tea.Batch(cmds...)
+
+	case streamDoneMsg:
+		if msg.version != m.version {
+			return m, nil
+		}
+		m.stopSearch()
+		return m, nil
 
 	case previewMsg:
 		if msg.path != m.prevPath {
@@ -87,10 +111,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyCtrlC:
+		m.stopSearch() // 退出前杀掉可能仍在跑的 rg
 		m.picked = ""
 		return m, tea.Quit
 
 	case tea.KeyEnter:
+		m.stopSearch()
 		if len(m.results) > 0 && m.sel < len(m.results) {
 			m.picked = filepath.Join(m.root, m.results[m.sel].Path)
 		}
@@ -102,6 +128,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.version++
 			return m, tickDebounce(m.version, m.cfg.Debounce)
 		}
+		m.stopSearch()
 		return m, tea.Quit
 
 	case tea.KeyTab:
@@ -111,7 +138,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeFiles
 		}
 		m.updatePlaceholder()
-		m.version++
 		return m, m.runSearch()
 
 	case tea.KeyUp, tea.KeyCtrlP:

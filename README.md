@@ -6,8 +6,8 @@
 
 - **实时防抖搜索**：输入即搜（默认 200ms 防抖），过期结果自动丢弃（版本号判废）
 - **双模式**：`Tab` 切换
-  - 文件模式：文件名子串匹配（内置遍历，跳过 `.git`/`node_modules` 等）
-  - 内容模式：调用 `rg --json` 全文搜索，结果定位到行
+  - 文件模式：fzf 式模糊匹配（空格分词 AND、边界/连续加权评分排序，命中字符高亮）；优先用 `rg --files` 枚举（尊重 .gitignore），无 rg 时回退内置遍历
+  - 内容模式：`rg --json` 流式解析，结果边搜边出；输入变化立即杀掉上一轮 rg 进程
 - **多面板预览**：左侧结果列表、右侧预览面板
   - 代码：chroma 语法高亮 + 行号槽，内容模式自动跳转到匹配行
   - 图片：kitty 图形协议 / sixel 协议直接在终端内渲染，不支持时显示占位提示
@@ -59,9 +59,10 @@ vim "$(./scx-rg -mode content -q TODO)"
 main.go                     入口：参数解析、协议探测、程序启动
 internal/
   search/
-    provider.go             Provider 接口（Result{Path, Line, Text}）
-    walk.go                 文件名遍历搜索
-    rg.go                   ripgrep --json 流式解析
+    provider.go             Provider / SyncProvider / StreamProvider 接口
+    fuzzy.go                模糊匹配与评分（子序列 + 边界/连续加权）
+    files.go                文件名搜索：rg --files / 内置遍历 + 模糊排序
+    rg.go                   ripgrep --json 流式解析（可取消）
   preview/
     preview.go              Render 入口：按扩展名分发
     code.go                 chroma 高亮 + 行号槽 + 匹配行标记
@@ -69,12 +70,21 @@ internal/
     cellsize_unix.go        TIOCGWINSZ 取单元格像素尺寸
     protocol.go             图形协议探测（环境变量启发式）
   tui/
-    model.go                状态 + 消息定义 + 防抖/搜索/预览命令
-    update.go               事件处理（按键、防抖到期、异步回包）
-    view.go                 布局渲染（头部/列表/预览/状态栏）
+    model.go                状态 + 消息定义 + 搜索/预览命令与流式消费链
+    update.go               事件处理（按键、防抖到期、流式/同步回包）
+    view.go                 布局渲染（头部/列表/预览/状态栏 + 命中高亮）
     styles.go               Lipgloss 样式
 testdata/demo.png           图片预览测试素材
 ```
+
+## 测试
+
+```bash
+go test ./...
+```
+
+- `internal/search`：模糊匹配评分/分词语义、rg --files 的 gitignore 行为、流式搜索与取消不泄漏
+- `internal/tui`：流式结果追加、过期消息丢弃、新搜索重置状态（通过 drain 驱动 cmd 链模拟事件循环）
 
 ## 已知限制 / Roadmap
 

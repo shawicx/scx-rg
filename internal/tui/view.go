@@ -68,7 +68,15 @@ func (m *Model) resultRow(i, w int) string {
 	var body string
 	if m.mode == ModeFiles {
 		dir, base := filepath.Split(r.Path)
-		body = highlightMatch(base, m.input.Value()) + " " + styleDim.Render(dir)
+		// Hits 是相对整个路径的 rune 下标，换算成 base 内的下标
+		off := len([]rune(dir))
+		var hits []int
+		for _, h := range r.Hits {
+			if h >= off {
+				hits = append(hits, h-off)
+			}
+		}
+		body = highlightRunes(base, hits) + " " + styleDim.Render(dir)
 	} else {
 		loc := styleDim.Render(fmt.Sprintf("%s:%d", r.Path, r.Line))
 		body = loc + " " + highlightMatch(strings.TrimSpace(r.Text), m.input.Value())
@@ -78,6 +86,33 @@ func (m *Model) resultRow(i, w int) string {
 		row = selRowStyle(w).Render(row)
 	}
 	return row
+}
+
+// highlightRunes 高亮 s 中指定 rune 下标的字符（模糊命中位置）。
+func highlightRunes(s string, pos []int) string {
+	if len(pos) == 0 {
+		return s
+	}
+	set := make(map[int]bool, len(pos))
+	for _, p := range pos {
+		set[p] = true
+	}
+	var out strings.Builder
+	runes := []rune(s)
+	runStart := -1
+	for i := 0; i <= len(runes); i++ {
+		in := i < len(runes) && set[i]
+		if in && runStart < 0 {
+			runStart = i
+		} else if !in && runStart >= 0 {
+			out.WriteString(styleMatch.Render(string(runes[runStart:i])))
+			runStart = -1
+		}
+		if i < len(runes) && !in {
+			out.WriteRune(runes[i])
+		}
+	}
+	return out.String()
 }
 
 func (m *Model) previewView() string {

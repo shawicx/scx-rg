@@ -43,12 +43,19 @@ type Config struct {
 type (
 	// debounceMsg 防抖计时到期；version 过期则丢弃。
 	debounceMsg struct{ version uint64 }
-	// resultsMsg 异步搜索结果。
+	// resultsMsg 同步搜索的完整结果。
 	resultsMsg struct {
 		version uint64
 		results []search.Result
 		err     error
 	}
+	// resultMsg 流式搜索的单条结果。
+	resultMsg struct {
+		version uint64
+		result  search.Result
+	}
+	// streamDoneMsg 流式搜索结束（完成 / 取消 / 封顶）。
+	streamDoneMsg struct{ version uint64 }
 	// previewMsg 异步预览渲染结果。
 	previewMsg struct {
 		path     string
@@ -76,6 +83,11 @@ type Model struct {
 	offset    int
 	searching bool
 	searchErr error
+
+	// 流式搜索状态：cancelSearch 取消当前流（杀掉 rg 进程），
+	// streamCh 供 waitForResult 消息链继续消费。
+	cancelSearch context.CancelFunc
+	streamCh     <-chan search.Result
 
 	vp          viewport.Model
 	prevPath    string
@@ -123,27 +135,77 @@ func (m *Model) provider() search.Provider {
 		}
 		return nil
 	}
-	return search.FilesProvider{}
+	return search.FilesProvider{UseRg: m.cfg.RgAvailable}
 }
 
-// runSearch 基于当前查询发起异步搜索。
+// runSearch 基于当前查询发起搜索：先取消上一轮（流式会立刻杀掉 rg 进程），
+// 清空列表与预览，再按 Provider 类型走同步或流式路径。
 func (m *Model) runSearch() tea.Cmd {
+	if m.cancelSearch != nil {
+		m.cancelSearch()
+		m.cancelSearch = nil
+	}
+	m.streamCh = nil
+	m.version++
 	v := m.version
+
+	m.results = nil
+	m.sel, m.offset = 0, 0
+	m.vp.SetContent("")
+	m.prevPath = ""
+	m.searchErr = nil
+
 	p := m.provider()
 	if p == nil {
 		m.searching = true
 		return func() tea.Msg { return resultsMsg{version: v, err: errNoRg} }
 	}
 	m.searching = true
-	m.searchErr = nil
+
+	if sp, ok := p.(search.StreamProvider); ok {
+		ctx, cancel := context.WithCancel(context.Background())
+		ch, err := sp.SearchStream(ctx, m.root, m.input.Value())
+		if err != nil {
+			cancel()
+			m.searching = false
+			m.searchErr = err
+			return nil
+		}
+		m.cancelSearch = cancel
+		m.streamCh = ch
+		return m.waitForResult(ch, v)
+	}
+
+	sync := p.(search.SyncProvider)
 	q := m.input.Value()
 	root := m.root
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		res, err := p.Search(ctx, root, q)
+		res, err := sync.Search(ctx, root, q)
 		return resultsMsg{version: v, results: res, err: err}
 	}
+}
+
+// waitForResult 阻塞取一条流式结果；channel 关闭时发出结束消息。
+func (m *Model) waitForResult(ch <-chan search.Result, v uint64) tea.Cmd {
+	return func() tea.Msg {
+		r, ok := <-ch
+		if !ok {
+			return streamDoneMsg{version: v}
+		}
+		return resultMsg{version: v, result: r}
+	}
+}
+
+// stopSearch 结束当前流：取消进程、清空句柄。幂等。
+func (m *Model) stopSearch() {
+	if m.cancelSearch != nil {
+		m.cancelSearch()
+		m.cancelSearch = nil
+	}
+	m.streamCh = nil
+	m.searching = false
 }
 
 func (m *Model) panelH() int      { return max(0, m.height-4) }
@@ -228,13 +290,25 @@ func (m *Model) RenderOnce(w, h int, query, focus string) string {
 	return m.View()
 }
 
+// drain 同步驱动 cmd/msg 链直到结束，模拟 bubbletea 事件循环（展开 BatchMsg）。
+// 上限足够消费完一条流的最大结果数。
 func (m *Model) drain(cmd tea.Cmd) {
-	for i := 0; cmd != nil && i < 16; i++ {
-		msg := cmd()
+	pending := []tea.Cmd{cmd}
+	for i := 0; len(pending) > 0 && i < 1<<20; i++ {
+		c := pending[0]
+		pending = pending[1:]
+		if c == nil {
+			continue
+		}
+		msg := c()
 		if msg == nil {
-			return
+			continue
+		}
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			pending = append(pending, batch...)
+			continue
 		}
 		_, next := m.Update(msg)
-		cmd = next
+		pending = append(pending, next)
 	}
 }

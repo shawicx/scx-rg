@@ -33,53 +33,64 @@ type rgText struct {
 	Text string `json:"text"`
 }
 
-func (p RipgrepProvider) Search(ctx context.Context, root, query string) ([]Result, error) {
+// SearchStream 启动 rg 并通过 channel 流式返回匹配，全部发完（或达到上限、
+// 被取消、出错）后关闭 channel。取消 ctx 会立即杀死 rg 进程并解除发送阻塞。
+func (p RipgrepProvider) SearchStream(ctx context.Context, root, query string) (<-chan Result, error) {
 	if strings.TrimSpace(query) == "" {
-		return nil, nil
+		ch := make(chan Result)
+		close(ch)
+		return ch, nil
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	cmd := exec.CommandContext(ctx, "rg", "--json", "--smart-case", "--max-count", "20", "--", query, ".")
 	cmd.Dir = root
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		cancel()
 		return nil, err
 	}
 
-	var results []Result
-	stopped := false
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
-	for sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
-		if len(line) == 0 {
-			continue
+	ch := make(chan Result, 128)
+	go func() {
+		defer close(ch)
+		defer cancel()
+		count := 0
+		sc := bufio.NewScanner(stdout)
+		sc.Buffer(make([]byte, 64*1024), 1024*1024)
+		for sc.Scan() {
+			line := bytes.TrimSpace(sc.Bytes())
+			if len(line) == 0 {
+				continue
+			}
+			var ev rgEvent
+			if json.Unmarshal(line, &ev) != nil || ev.Type != "match" {
+				continue
+			}
+			path := strings.TrimPrefix(ev.Data.Path.Text, "./")
+			if path == "" {
+				continue
+			}
+			res := Result{
+				Path: path,
+				Line: ev.Data.LineNumber,
+				Text: strings.TrimSpace(ev.Data.Lines.Text),
+			}
+			select {
+			case ch <- res:
+			case <-ctx.Done(): // 消费者停止读取时，靠取消解除发送阻塞
+				_ = cmd.Wait()
+				return
+			}
+			count++
+			if count >= MaxResults {
+				break
+			}
 		}
-		var ev rgEvent
-		if json.Unmarshal(line, &ev) != nil || ev.Type != "match" {
-			continue
-		}
-		path := strings.TrimPrefix(ev.Data.Path.Text, "./")
-		if path == "" {
-			continue
-		}
-		results = append(results, Result{
-			Path: path,
-			Line: ev.Data.LineNumber,
-			Text: strings.TrimSpace(ev.Data.Lines.Text),
-		})
-		if len(results) >= MaxResults {
-			stopped = true
-			break
-		}
-	}
-	if stopped {
-		cancel()
-	}
-	_ = cmd.Wait()
-	return results, nil
+		_ = cmd.Wait()
+	}()
+	return ch, nil
 }
