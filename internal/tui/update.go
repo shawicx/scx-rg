@@ -51,6 +51,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchErr = msg.err
 		m.results = msg.results
 		m.sel, m.offset = 0, 0
+		// 文件名零命中且查询非空：自动回退全文搜索，用户不再需要记 Tab
+		if m.mode == ModeFiles && len(m.results) == 0 && msg.err == nil &&
+			strings.TrimSpace(m.input.Value()) != "" && m.cfg.RgAvailable {
+			return m, m.startFallbackStream()
+		}
 		return m, m.followSelection()
 
 	case resultMsg:

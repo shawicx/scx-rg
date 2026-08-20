@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,6 +105,57 @@ func TestNewSearchResetsListAndCancelsPreviousStream(t *testing.T) {
 	m.drain(cmd)
 	if len(m.results) != 2 {
 		t.Fatalf("新查询流式结果 = %d, 期望 2", len(m.results))
+	}
+}
+
+func TestFilesModeAutoFallsBackToContentSearch(t *testing.T) {
+	m := newContentModel(t, map[string]string{"readme.md": "支持实时搜索 needle\n普通行\n"})
+	m.mode = ModeFiles // 模拟用户在文件模式输入内容词
+	m.input.SetValue("搜索")
+	triggerSearch(m)
+
+	if !m.fallbackActive {
+		t.Fatal("文件名无命中时应自动回退全文搜索")
+	}
+	if n := len(m.results); n != 1 {
+		t.Fatalf("回退后应显示内容命中 1 条，实际 %d", n)
+	}
+	if m.results[0].Path != "readme.md" || m.results[0].Line != 1 {
+		t.Fatalf("回退结果应为 readme.md:1，实际 %+v", m.results[0])
+	}
+	if m.prevPath != "readme.md" {
+		t.Fatalf("预览应跟随回退结果: %q", m.prevPath)
+	}
+	view := m.View()
+	if !strings.Contains(view, "全文") {
+		t.Fatalf("回退状态下列表应标注「全文」来源:\n%s", view)
+	}
+	if !strings.Contains(view, "readme.md:1") {
+		t.Fatalf("回退结果应使用内容格式（路径:行号）:\n%s", view)
+	}
+}
+
+func TestFallbackResetsOnNewSearch(t *testing.T) {
+	m := newContentModel(t, map[string]string{
+		"readme.md": "支持实时搜索\n",
+		"搜索器.md":  "",
+	})
+	m.mode = ModeFiles
+	m.input.SetValue("实时") // 只命中 readme 内容，不命中任何文件名
+	triggerSearch(m)
+	if !m.fallbackActive || len(m.results) != 1 {
+		t.Fatalf("前置条件失败: fallback=%v results=%d", m.fallbackActive, len(m.results))
+	}
+
+	// 新查询命中文件名 → 不再回退
+	m.input.SetValue("搜索器")
+	m.version++
+	m.drain(m.runSearch())
+	if m.fallbackActive {
+		t.Fatal("新搜索应重置回退状态")
+	}
+	if len(m.results) != 1 || m.results[0].Path != "搜索器.md" {
+		t.Fatalf("文件名命中应直接显示: %+v", m.results)
 	}
 }
 

@@ -83,6 +83,8 @@ type Model struct {
 	offset    int
 	searching bool
 	searchErr error
+	// fallbackActive：文件模式无命中后自动切换到全文搜索结果展示
+	fallbackActive bool
 
 	// 流式搜索状态：cancelSearch 取消当前流（杀掉 rg 进程），
 	// streamCh 供 waitForResult 消息链继续消费。
@@ -154,6 +156,7 @@ func (m *Model) runSearch() tea.Cmd {
 	m.vp.SetContent("")
 	m.prevPath = ""
 	m.searchErr = nil
+	m.fallbackActive = false
 
 	p := m.provider()
 	if p == nil {
@@ -162,18 +165,8 @@ func (m *Model) runSearch() tea.Cmd {
 	}
 	m.searching = true
 
-	if sp, ok := p.(search.StreamProvider); ok {
-		ctx, cancel := context.WithCancel(context.Background())
-		ch, err := sp.SearchStream(ctx, m.root, m.input.Value())
-		if err != nil {
-			cancel()
-			m.searching = false
-			m.searchErr = err
-			return nil
-		}
-		m.cancelSearch = cancel
-		m.streamCh = ch
-		return m.waitForResult(ch, v)
+	if _, ok := p.(search.StreamProvider); ok {
+		return m.startStreamSearch()
 	}
 
 	sync := p.(search.SyncProvider)
@@ -185,6 +178,29 @@ func (m *Model) runSearch() tea.Cmd {
 		res, err := sync.Search(ctx, root, q)
 		return resultsMsg{version: v, results: res, err: err}
 	}
+}
+
+// startStreamSearch 发起内容流式搜索（runSearch 与文件名回退共用）。
+// 沿用当前 version，不重置列表；调用前须已取消旧搜索。
+func (m *Model) startStreamSearch() tea.Cmd {
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := (search.RipgrepProvider{}).SearchStream(ctx, m.root, m.input.Value())
+	if err != nil {
+		cancel()
+		m.searching = false
+		m.searchErr = err
+		return nil
+	}
+	m.cancelSearch = cancel
+	m.streamCh = ch
+	m.searching = true
+	return m.waitForResult(ch, m.version)
+}
+
+// startFallbackStream 文件名搜索零命中时的全文回退。
+func (m *Model) startFallbackStream() tea.Cmd {
+	m.fallbackActive = true
+	return m.startStreamSearch()
 }
 
 // waitForResult 阻塞取一条流式结果；channel 关闭时发出结束消息。

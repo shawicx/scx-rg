@@ -42,6 +42,10 @@ func (m *Model) listView() string {
 			hint = "错误: " + m.searchErr.Error()
 		case m.mode == ModeContent && m.input.Value() == "":
 			hint = "内容模式：输入关键词开始全文搜索"
+		case m.fallbackActive:
+			hint = "文件名与全文均无匹配"
+		case m.mode == ModeFiles && m.input.Value() != "":
+			hint = "文件名无匹配 · Tab 切内容模式搜全文"
 		}
 		rows = append(rows, centerLine(hint, w, stylePlaceholder))
 	} else {
@@ -53,8 +57,11 @@ func (m *Model) listView() string {
 		rows = append(rows, "")
 	}
 
-	title := stylePanelTitle.Render("结果") +
-		styleDim.Render(fmt.Sprintf("  %d/%d", min(m.sel+1, len(m.results)), len(m.results)))
+	title := stylePanelTitle.Render("结果")
+	if m.fallbackActive {
+		title += " " + styleBadgeContent.Render("全文")
+	}
+	title += styleDim.Render(fmt.Sprintf("  %d/%d", min(m.sel+1, len(m.results)), len(m.results)))
 	body := title + "\n" + strings.Join(rows, "\n")
 	return styleBorderActive.Width(m.listW - 2).Render(body)
 }
@@ -66,7 +73,7 @@ func (m *Model) resultRow(i, w int) string {
 		marker = styleRowMarker.Render("❯ ")
 	}
 	var body string
-	if m.mode == ModeFiles {
+	if m.mode == ModeFiles && !m.fallbackActive {
 		dir, base := filepath.Split(r.Path)
 		// Hits 是相对整个路径的 rune 下标，换算成 base 内的下标
 		off := len([]rune(dir))
@@ -117,8 +124,11 @@ func highlightRunes(s string, pos []int) string {
 
 func (m *Model) previewView() string {
 	body := m.vp.View()
-	if m.prevLoading {
+	switch {
+	case m.prevLoading:
 		body = stylePlaceholder.Render("加载预览…")
+	case m.prevPath == "":
+		body = stylePlaceholder.Render("选中左侧结果后在此预览")
 	}
 	title := stylePanelTitle.Render("预览")
 	if m.prevPath != "" {
