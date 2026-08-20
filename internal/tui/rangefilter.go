@@ -17,6 +17,7 @@ var rangeDurPresets = []struct {
 	label string
 	d     time.Duration
 }{
+	{"实时", 30 * time.Second}, // 滑动窗口：只看最近 30 秒，跟随模式下随时间滚动
 	{"全部", 0},
 	{"1分钟", time.Minute},
 	{"5分钟", 5 * time.Minute},
@@ -172,30 +173,69 @@ func (m *Model) handleRangeBarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// rangeChipApply 把光标处的预设设为生效值并重算列表。
+// rangeChipApply 把光标处的预设设为生效值并重算列表；
+// 跟随模式下时间筛选激活时启动实时滑动窗口的 tick 链。
 func (m *Model) rangeChipApply() tea.Cmd {
 	m.filterDur = rangeDurPresets[m.rangeSel[0]].d
 	m.filterCap = rangeCapPresets[m.rangeSel[1]].n
-	return m.refilter(true)
+	cmd := m.refilter(true)
+	if m.needsLiveTick() && !m.liveTicking && !m.onceMode {
+		m.liveTicking = true
+		return tea.Batch(cmd, liveTick())
+	}
+	return cmd
+}
+
+// liveTickInterval 实时滑动窗口的重算间隔。
+const liveTickInterval = time.Second
+
+type liveTickMsg struct{}
+
+func liveTick() tea.Cmd {
+	return tea.Tick(liveTickInterval, func(time.Time) tea.Msg { return liveTickMsg{} })
+}
+
+// needsLiveTick 实时重算的激活条件：跟随中且时间筛选生效。
+// 静态快照不滑动（没有新数据，滑窗只会把列表慢慢漏空）。
+func (m *Model) needsLiveTick() bool {
+	return m.following() && m.filterDur > 0 && m.tsOK
+}
+
+// handleLiveTick 按当前时刻重算滑动窗口：没有新日志到达，
+// 超窗的旧行也会滚出列表（实时日志窗）。筛选失效则链自然终止。
+func (m *Model) handleLiveTick() tea.Cmd {
+	if !m.needsLiveTick() {
+		m.liveTicking = false
+		return nil
+	}
+	var next tea.Cmd
+	if !m.onceMode {
+		next = liveTick()
+	} else {
+		m.liveTicking = false
+	}
+	return tea.Batch(next, m.refilter(true))
 }
 
 // resultPasses 时间筛选只丢弃「带时间戳且早于范围」的行；
 // 无时间戳的行（多行堆栈的续行等）保留。
 func (m *Model) resultPasses(r search.Result) bool {
 	if m.filterDur > 0 && m.tsOK {
-		if ts, ok := parseLineTime(r.Text); ok && time.Since(ts) > m.filterDur {
+		if ts, ok := parseLineTime(r.Text); ok && m.nowFunc().Sub(ts) > m.filterDur {
 			return false
 		}
 	}
 	return true
 }
 
-// refilter 从 raw 全量重算结果（chip 切换 / 同步结果到达时）。
-// keep 为 true 时尽量保持当前选中项。
+// refilter 从 raw 全量重算结果（chip 切换 / 同步结果到达 / 实时重算时）。
+// keep 为 true 时尽量保持当前选中项；选中项被滤掉时按索引钳位，
+// 实时滚动时光标停在邻近位置而不是跳回顶部。
 func (m *Model) refilter(keep bool) tea.Cmd {
+	oldSel := m.sel
 	var keepKey string
-	if keep && m.sel < len(m.results) {
-		keepKey = resultKey(m.results[m.sel])
+	if keep && oldSel < len(m.results) {
+		keepKey = resultKey(m.results[oldSel])
 	}
 	out := make([]search.Result, 0, len(m.raw))
 	for _, r := range m.raw {
@@ -207,15 +247,18 @@ func (m *Model) refilter(keep bool) tea.Cmd {
 		out = out[len(out)-m.filterCap:]
 	}
 	m.results = out
-	m.sel, m.offset = 0, 0
 	if keepKey != "" {
+		m.sel = min(oldSel, max(0, len(m.results)-1))
 		for i := range m.results {
 			if resultKey(m.results[i]) == keepKey {
 				m.sel = i
 				break
 			}
 		}
+	} else {
+		m.sel = 0
 	}
+	m.offset = min(m.offset, max(0, len(m.results)-1))
 	m.adjustOffset()
 	if len(m.results) == 0 {
 		m.vp.SetContent("")

@@ -78,6 +78,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case followTickMsg:
 		return m, m.handleFollowTick()
 
+	case liveTickMsg:
+		return m, m.handleLiveTick()
+
 	case resultMsg:
 		if msg.version != m.version {
 			return m, nil // 过期结果

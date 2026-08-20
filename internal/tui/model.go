@@ -124,13 +124,15 @@ type Model struct {
 	onceMode   bool   // RenderOnce 调试路径：禁用周期性 tick
 
 	// 可视化筛选栏（Ctrl+T）：客户端过滤，不重新抓取
-	rangeBar  bool            // 筛选栏打开且聚焦
-	rangeSeg  int             // 0=时间 1=条数
-	rangeSel  [2]int          // 两段的光标位置
-	filterDur time.Duration   // 时间筛选，0=全部
-	filterCap int             // 条数封顶（保留最新 N 条），0=全部
-	raw       []search.Result // 未过滤结果缓冲（与流式封顶一致）
-	tsOK      bool            // 本轮结果中检测到行首时间戳
+	rangeBar    bool             // 筛选栏打开且聚焦
+	rangeSeg    int              // 0=时间 1=条数
+	rangeSel    [2]int           // 两段的光标位置
+	filterDur   time.Duration    // 时间筛选，0=全部
+	filterCap   int              // 条数封顶（保留最新 N 条），0=全部
+	raw         []search.Result  // 未过滤结果缓冲（与流式封顶一致）
+	tsOK        bool             // 本轮结果中检测到行首时间戳
+	liveTicking bool             // 实时滑动窗口的 tick 链运转中
+	now         func() time.Time // 可注入时钟（测试模拟时间流逝）
 
 	// 源选择器状态
 	picking      bool          // 处于「选目标」阶段
@@ -195,6 +197,14 @@ func (m *Model) Init() tea.Cmd {
 
 func tickDebounce(v uint64, d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return debounceMsg{version: v} })
+}
+
+// nowFunc 当前时间；测试可注入假时钟。
+func (m *Model) nowFunc() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
 }
 
 func (m *Model) provider() search.Provider {

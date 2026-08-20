@@ -11,7 +11,104 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"scx-rg/internal/preview"
+	"scx-rg/internal/search"
 )
+
+func TestRangePresetsIncludeLive(t *testing.T) {
+	if rangeDurPresets[0].label != "实时" || rangeDurPresets[0].d != 30*time.Second {
+		t.Fatalf("首个时间预设应为 实时(30s): %+v", rangeDurPresets[0])
+	}
+	if durPresetIndex(0) != 1 {
+		t.Fatalf("全部 应仍在预设中（索引 1），得到 %d", durPresetIndex(0))
+	}
+}
+
+func TestLiveChipActivation(t *testing.T) {
+	m := newContentModel(t, map[string]string{"a.txt": "ERROR one\n"})
+	m.input.SetValue("ERROR")
+	triggerSearch(m)
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft}) // 全部 → 实时
+	if m.filterDur != 30*time.Second {
+		t.Fatalf("filterDur = %v, 期望 30s（实时）", m.filterDur)
+	}
+	if !strings.Contains(m.View(), "实时") {
+		t.Fatalf("状态栏应显示 实时:\n%s", m.View())
+	}
+}
+
+func TestLiveTickAgesOutWindowWithoutNewData(t *testing.T) {
+	fakeNow := time.Now()
+	m, _ := newFollowModel(t,
+		fakeNow.Add(-2*time.Minute).UTC().Format(time.RFC3339Nano)+" ERROR old\n"+
+			fakeNow.Add(-10*time.Second).UTC().Format(time.RFC3339Nano)+" ERROR new\n")
+	m.now = func() time.Time { return fakeNow }
+	m.input.SetValue("ERROR")
+	triggerSearch(m)
+	if len(m.results) != 2 {
+		t.Fatalf("前置: 应命中 2 条, 得到 %d", len(m.results))
+	}
+
+	// 激活实时（30s 窗）：2 分钟前的旧行立即出局
+	m.filterDur = 30 * time.Second
+	m.tsOK = true
+	m.drain(m.refilter(true))
+	if len(m.results) != 1 || !strings.Contains(m.results[0].Text, "ERROR new") {
+		t.Fatalf("实时筛选后应剩 1 条新日志: %+v", m.results)
+	}
+
+	// 没有新日志写入，仅时间流逝：新行也老化出窗，列表滑空
+	fakeNow = fakeNow.Add(time.Minute)
+	_, cmd := m.Update(liveTickMsg{})
+	m.drain(cmd)
+	if len(m.results) != 0 {
+		t.Fatalf("时间流逝后实时窗口应滑空, 得到 %d", len(m.results))
+	}
+	if m.liveTicking {
+		t.Fatal("onceMode 下 tick 不应续期")
+	}
+}
+
+func TestLiveTickStopsWhenFilterCleared(t *testing.T) {
+	m, _ := newFollowModel(t, "ERROR one\n")
+	m.input.SetValue("ERROR")
+	triggerSearch(m)
+	m.filterDur = 0 // 筛选已清空
+	_, cmd := m.Update(liveTickMsg{})
+	if cmd != nil {
+		t.Fatal("筛选未激活时 tick 链应终止")
+	}
+	if len(m.results) != 1 {
+		t.Fatalf("结果不应变化, 得到 %d", len(m.results))
+	}
+}
+
+func TestRefilterClampsSelection(t *testing.T) {
+	m := newContentModel(t, map[string]string{"a.txt": "x1\nx2\nx3\n"})
+	m.input.SetValue("x")
+	triggerSearch(m)
+	if len(m.results) != 3 {
+		t.Fatalf("前置: 3 条, 得到 %d", len(m.results))
+	}
+	m.sel = 2
+	// 让最后一条（x3）被时间筛掉：构造 raw 时间戳
+	now := time.Now()
+	m.raw = []search.Result{
+		{Path: "a.txt", Line: 1, Text: now.Add(-time.Minute).UTC().Format(time.RFC3339Nano) + " x1"},
+		{Path: "a.txt", Line: 2, Text: now.Add(-time.Minute).UTC().Format(time.RFC3339Nano) + " x2"},
+		{Path: "a.txt", Line: 3, Text: now.Add(-3*time.Minute).UTC().Format(time.RFC3339Nano) + " x3"},
+	}
+	m.now = func() time.Time { return now }
+	m.filterDur = 2 * time.Minute
+	m.tsOK = true
+	m.drain(m.refilter(true))
+	if len(m.results) != 2 {
+		t.Fatalf("筛选后应剩 2 条, 得到 %d", len(m.results))
+	}
+	if m.sel != 1 {
+		t.Fatalf("选中项被滤掉时应按索引钳位到 1, 得到 %d", m.sel)
+	}
+}
 
 func TestParseLineTime(t *testing.T) {
 	now := time.Now()
