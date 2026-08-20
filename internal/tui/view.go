@@ -9,21 +9,31 @@ import (
 	"github.com/muesli/reflow/truncate"
 )
 
-// View 自上而下：搜索框 → [结果列表 | 预览面板] → 状态栏。
+// View 自上而下：搜索框 → [筛选栏] → [结果列表 | 预览面板] → 状态栏。
 func (m *Model) View() string {
 	if m.width < 60 || m.height < 12 {
 		return styleDim.Render("终端太小啦，至少需要 60×12")
 	}
-	return lipgloss.JoinVertical(lipgloss.Left,
-		m.headerView(),
+	parts := []string{m.headerView()}
+	if m.rangeBar {
+		parts = append(parts, m.rangeBarView())
+	}
+	parts = append(parts,
 		lipgloss.JoinHorizontal(lipgloss.Top, m.listView(), m.previewView()),
 		m.statusView(),
 	)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (m *Model) headerView() string {
 	name := " scx-rg "
-	if m.cfg.Title != "" {
+	if m.picking {
+		if m.pickerKind == "kubectl" {
+			name = " 选择 Pod "
+		} else {
+			name = " 选择容器 "
+		}
+	} else if m.cfg.Title != "" {
 		name = " " + m.cfg.Title + " "
 	}
 	inner := styleAppTitle.Render(name) + " " + m.input.View()
@@ -32,6 +42,9 @@ func (m *Model) headerView() string {
 }
 
 func (m *Model) listView() string {
+	if m.picking {
+		return m.pickerListView()
+	}
 	w := m.listW - 4
 	vis := m.listVisible()
 
@@ -126,14 +139,21 @@ func highlightRunes(s string, pos []int) string {
 }
 
 func (m *Model) previewView() string {
+	title := stylePanelTitle.Render("预览")
 	body := m.vp.View()
+	if m.picking {
+		title = stylePanelTitle.Render("详情")
+		if len(m.pickerView) == 0 {
+			body = stylePlaceholder.Render("选择左侧目标查看详情")
+		}
+		return styleBorderIdle.Width(m.prevW - 2).Render(title + "\n" + body)
+	}
 	switch {
 	case m.prevLoading:
 		body = stylePlaceholder.Render("加载预览…")
 	case m.prevPath == "":
 		body = stylePlaceholder.Render("选中左侧结果后在此预览")
 	}
-	title := stylePanelTitle.Render("预览")
 	if m.prevPath != "" {
 		title += " " + styleDim.Render(m.prevPath)
 		if m.prevLang != "" {
@@ -145,6 +165,24 @@ func (m *Model) previewView() string {
 }
 
 func (m *Model) statusView() string {
+	if m.picking {
+		left := styleBadgeFiles.Render("选择 " + pickerKindLabel(m.pickerKind))
+		if m.pickLoading {
+			left += " " + styleSearching.Render("⟳ 抓取日志中…")
+		} else if m.listLoading {
+			left += " " + styleSearching.Render("⟳ 加载列表")
+		}
+		left += fmt.Sprintf(" %d 项", len(m.pickerView))
+		if m.searchErr != nil {
+			left += " · " + styleErrText.Render(m.searchErr.Error())
+		}
+		right := "↑↓ 选择 · 输入过滤 · Ctrl+R 刷新 · Enter 抓取并检索 · Esc 退出"
+		pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+		if pad > 0 {
+			left += strings.Repeat(" ", pad)
+		}
+		return styleStatus.Width(m.width).Render(left + right)
+	}
 	var badge string
 	if m.mode == ModeFiles {
 		badge = styleBadgeFiles.Render("文件")
@@ -156,10 +194,12 @@ func (m *Model) statusView() string {
 		left += styleSearching.Render("⟳ 搜索中") + " · "
 	}
 	left += fmt.Sprintf("%d 项", len(m.results))
+	left += m.filterStatus()
+	left += m.followStatus()
 	if m.searchErr != nil {
 		left += " · " + styleErrText.Render(m.searchErr.Error())
 	}
-	right := "Tab 模式 · ↑↓ 选择 · PgUp/PgDn 滚动 · Enter 选定 · Esc 清空 · Ctrl+C 退出"
+	right := "Tab 模式 · Ctrl+T 筛选 · ↑↓ 选择 · PgUp/PgDn 滚动 · Enter 选定 · Esc 清空"
 	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad > 0 {
 		left += strings.Repeat(" ", pad)

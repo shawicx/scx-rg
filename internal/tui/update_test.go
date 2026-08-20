@@ -138,7 +138,7 @@ func TestFilesModeAutoFallsBackToContentSearch(t *testing.T) {
 func TestFallbackResetsOnNewSearch(t *testing.T) {
 	m := newContentModel(t, map[string]string{
 		"readme.md": "支持实时搜索\n",
-		"搜索器.md":  "",
+		"搜索器.md":    "",
 	})
 	m.mode = ModeFiles
 	m.input.SetValue("实时") // 只命中 readme 内容，不命中任何文件名

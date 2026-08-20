@@ -139,7 +139,7 @@ func TestSearchStreamCapsAtMaxResults(t *testing.T) {
 		t.Skip("rg 未安装")
 	}
 	files := map[string]string{}
-	for f := 0; f < 30; f++ { // 30 文件 × 每文件 20 处匹配（--max-count 20）= 600 条候选
+	for f := 0; f < 30; f++ { // 30 文件 × 每文件 20 处匹配 = 600 条候选，验证全局封顶
 		content := ""
 		for i := 0; i < 20; i++ {
 			content += "needle line\n"

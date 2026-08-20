@@ -44,7 +44,7 @@ func (p RipgrepProvider) SearchStream(ctx context.Context, root, query string) (
 		return ch, nil
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "rg", "--json", "--smart-case", "--max-count", "20", "--", query, ".")
+	cmd := exec.CommandContext(ctx, "rg", "--json", "--smart-case", "--", query, ".")
 	cmd.Dir = root
 	// 捕获 stderr：rg 对权限错误/非法正则的报错不能漏进 TUI，失败时经结果流传回
 	var stderr bytes.Buffer

@@ -49,14 +49,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.searching = false
 		m.searchErr = msg.err
-		m.results = msg.results
-		m.sel, m.offset = 0, 0
+		m.raw = msg.results
+		m.tsOK = detectResultsTs(m.raw)
+		cmd := m.refilter(false)
 		// 文件名零命中且查询非空：自动回退全文搜索，用户不再需要记 Tab
+		// （时间筛选可能清空列表，不作为回退依据）
 		if m.mode == ModeFiles && len(m.results) == 0 && msg.err == nil &&
+			!(m.filterDur > 0 && m.tsOK) &&
 			strings.TrimSpace(m.input.Value()) != "" && m.cfg.RgAvailable {
 			return m, m.startFallbackStream()
 		}
-		return m, m.followSelection()
+		return m, cmd
+
+	case pickerLoadedMsg:
+		m.listLoading = false
+		if msg.err != nil {
+			m.searchErr = msg.err
+			return m, nil
+		}
+		m.searchErr = nil
+		m.pickerSrcs = msg.sources
+		m.pickerFilter()
+		return m, nil
+
+	case snapshotReadyMsg:
+		return m, m.handleSnapshotReady(msg)
+
+	case followTickMsg:
+		return m, m.handleFollowTick()
 
 	case resultMsg:
 		if msg.version != m.version {
@@ -68,24 +88,42 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stopSearch()
 			return m, nil
 		}
+		m.raw = append(m.raw, msg.result)
+		if !m.tsOK {
+			if _, ok := parseLineTime(msg.result.Text); ok {
+				m.tsOK = true
+			}
+		}
 		first := len(m.results) == 0
-		m.results = append(m.results, msg.result)
-		var cmds []tea.Cmd
-		if first {
-			cmds = append(cmds, m.followSelection()) // 首条结果到达时让预览跟上
+		if m.resultPasses(msg.result) {
+			m.results = append(m.results, msg.result)
+			m.trimResultsCap()
+			var cmds []tea.Cmd
+			if first {
+				cmds = append(cmds, m.followSelection()) // 首条结果到达时让预览跟上
+			}
+			if cmd := m.tryRestoreSelection(); cmd != nil {
+				cmds = append(cmds, cmd) // 跟随刷新后恢复选中项
+			}
+			if len(m.results) >= search.MaxResults {
+				m.stopSearch() // 封顶：杀掉 rg，剩余结果丢弃
+			} else {
+				cmds = append(cmds, m.waitForResult(m.streamCh, msg.version))
+			}
+			return m, tea.Batch(cmds...)
 		}
-		if len(m.results) >= search.MaxResults {
-			m.stopSearch() // 封顶：杀掉 rg，剩余结果丢弃
-		} else {
-			cmds = append(cmds, m.waitForResult(m.streamCh, msg.version))
+		if len(m.raw) >= search.MaxResults {
+			m.stopSearch() // raw 封顶（过滤后条数不足也要停）
+			return m, nil
 		}
-		return m, tea.Batch(cmds...)
+		return m, m.waitForResult(m.streamCh, msg.version)
 
 	case streamDoneMsg:
 		if msg.version != m.version {
 			return m, nil
 		}
 		m.stopSearch()
+		m.clearStaleKeep()
 		return m, nil
 
 	case previewMsg:
@@ -125,14 +163,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.picking {
+		return m.handlePickerKey(msg)
+	}
+	if m.rangeBar {
+		return m.handleRangeBarKey(msg)
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
-		m.stopSearch() // 退出前杀掉可能仍在跑的 rg
+		m.shutdown() // 退出前杀掉可能仍在跑的 rg / 跟随进程
 		m.picked = ""
 		return m, tea.Quit
 
 	case tea.KeyEnter:
-		m.stopSearch()
+		m.shutdown()
 		if len(m.results) > 0 && m.sel < len(m.results) {
 			if m.cfg.PickLine {
 				m.picked = m.results[m.sel].Text
@@ -146,10 +190,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.input.Value() != "" {
 			m.input.SetValue("")
 			m.version++
+			m.followKeep = ""
 			return m, tickDebounce(m.version, m.cfg.Debounce)
 		}
-		m.stopSearch()
+		m.shutdown()
 		return m, tea.Quit
+
+	case tea.KeyCtrlT:
+		return m, m.toggleRangeBar()
 
 	case tea.KeyTab:
 		if m.mode == ModeFiles {
@@ -158,6 +206,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeFiles
 		}
 		m.updatePlaceholder()
+		m.followKeep = ""
 		return m, m.runSearch()
 
 	case tea.KeyUp, tea.KeyCtrlP:
@@ -188,6 +237,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input = newInput
 		if m.input.Value() != before {
 			m.version++
+			m.followKeep = "" // 用户主动修改查询，保位失效
 			return m, tea.Batch(cmd, tickDebounce(m.version, m.cfg.Debounce))
 		}
 		return m, cmd

@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -19,20 +18,21 @@ import (
 	"scx-rg/internal/tui"
 )
 
-// dockerTail 抓取容器日志的行数上限。
-const dockerTail = 100000
+// logTail 抓取日志的行数上限。
+const logTail = 100000
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "docker" {
-		runDocker(os.Args[2:])
+	if len(os.Args) > 1 && (os.Args[1] == "docker" || os.Args[1] == "k8s") {
+		runLogSource(os.Args[1], os.Args[2:])
 		return
 	}
 	var (
-		pathFlag    = flag.String("path", ".", "搜索根目录")
+		pathFlag    = flag.String("path", ".", "搜索根目录；配合 --follow 可指向单个日志文件")
 		modeFlag    = flag.String("mode", "files", "初始模式: files | content")
 		imgFlag     = flag.String("img", "auto", "图片协议: auto | kitty | sixel | none")
 		debounceMs  = flag.Int("debounce-ms", 200, "搜索防抖间隔（毫秒）")
 		titleFlag   = flag.String("title", "", "头部标题（如 docker:web）")
+		followFlag  = flag.Bool("follow", false, "跟随 -path 指定的单个日志文件，实时刷新（tail -f 式）")
 		once        = flag.Bool("once", false, "渲染一帧后退出（调试用，不进备用屏）")
 		onceW       = flag.Int("w", 120, "--once 渲染宽度")
 		onceH       = flag.Int("h", 40, "--once 渲染高度")
@@ -40,14 +40,6 @@ func main() {
 		oncePreview = flag.String("preview-file", "", "--once 强制预览指定文件")
 	)
 	flag.Parse()
-
-	root, err := filepath.Abs(*pathFlag)
-	if err != nil {
-		die(err)
-	}
-	if st, err := os.Stat(root); err != nil || !st.IsDir() {
-		die(fmt.Errorf("不是有效目录: %s", root))
-	}
 
 	proto := preview.ParseProtocol(*imgFlag)
 	if proto == preview.ProtocolAuto {
@@ -59,14 +51,48 @@ func main() {
 		mode = tui.ModeContent
 	}
 
-	m := tui.New(tui.Config{
-		Root:        root,
+	cfg := tui.Config{
 		Mode:        mode,
 		Debounce:    time.Duration(*debounceMs) * time.Millisecond,
 		ImgProto:    proto,
 		RgAvailable: search.RgAvailable(),
 		Title:       *titleFlag,
-	})
+	}
+
+	if *followFlag {
+		p := *pathFlag
+		if rest := flag.Args(); len(rest) > 0 {
+			p = rest[0] // 支持 --follow /var/log/app.log 的直觉写法
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			die(err)
+		}
+		st, err := os.Stat(abs)
+		if err != nil || st.IsDir() {
+			die(errors.New("--follow 需要指向一个具体的日志文件，如 --follow /var/log/app.log"))
+		}
+		cfg.Root = filepath.Dir(abs)
+		cfg.FollowFile = abs
+		cfg.Title = filepath.Base(abs)
+		cfg.PickLine = true
+		cfg.Mode = tui.ModeContent
+	} else {
+		root, err := filepath.Abs(*pathFlag)
+		if err != nil {
+			die(err)
+		}
+		st, err := os.Stat(root)
+		if err != nil {
+			die(fmt.Errorf("路径不存在: %s", root))
+		}
+		if !st.IsDir() {
+			die(fmt.Errorf("%s 是文件；如需实时跟随请加 --follow", root))
+		}
+		cfg.Root = root
+	}
+
+	m := tui.New(cfg)
 
 	if *once {
 		fmt.Println(m.RenderOnce(*onceW, *onceH, *onceQuery, *oncePreview))
@@ -89,49 +115,91 @@ func main() {
 	printPicked(final)
 }
 
-// runDocker `scx-rg docker <容器名>`：抓取容器日志快照后进入全文检索。
-func runDocker(args []string) {
-	if !logs.DockerAvailable() {
-		die(errors.New("未找到 docker 命令"))
+// runLogSource docker/k8s 子命令：抓取日志快照进入全文检索；
+// --follow 持续跟随新日志（tail -f 式）。
+func runLogSource(kind string, args []string) {
+	target := logs.Target{Kind: kind}
+	if kind == "k8s" {
+		target.Kind = "kubectl"
+	}
+	var follow bool
+	fs := flag.NewFlagSet(kind, flag.ContinueOnError)
+	fs.BoolVar(&follow, "follow", false, "持续跟随新日志（tail -f 式）")
+	fs.BoolVar(&follow, "f", false, "--follow 简写")
+	fs.StringVar(&target.Namespace, "n", "", "namespace（k8s）")
+	fs.StringVar(&target.Container, "c", "", "指定容器（k8s 多容器 Pod）")
+	_ = fs.Parse(args)
+
+	if !target.Available() {
+		die(fmt.Errorf("未找到 %s 命令", target.Bin()))
 	}
 	if !search.RgAvailable() {
 		die(errors.New("日志检索需要 ripgrep（brew install ripgrep）"))
 	}
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "用法: scx-rg docker <容器名>    容器列表：")
-		cmd := exec.Command("docker", "ps", "--format", "table {{.Names}}\t{{.Image}}\t{{.Status}}")
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		_ = cmd.Run()
-		os.Exit(1)
-	}
-	container := args[0]
 
-	fmt.Fprintf(os.Stderr, "正在抓取 %s 最近 %d 行日志…\n", container, dockerTail)
-	dir, err := os.MkdirTemp("", "scx-rg-docker-")
+	dir, err := os.MkdirTemp("", "scx-rg-log-")
 	if err != nil {
 		die(err)
 	}
 	defer os.RemoveAll(dir)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	snap, err := logs.SnapshotDocker(ctx, logs.DefaultRunner, container, dockerTail)
-	cancel()
-	if err != nil {
-		die(err)
+	// 无参数：进入源选择器（免记忆）；--follow 选中后跟随。
+	rest := fs.Args()
+	if len(rest) == 0 {
+		m := tui.New(tui.Config{
+			PickerKind:  target.Kind,
+			SnapshotDir: dir,
+			FollowPick:  follow,
+			LogTail:     logTail,
+			Mode:        tui.ModeContent,
+			ImgProto:    preview.ProtocolNone,
+			RgAvailable: true,
+			PickLine:    true,
+		})
+		p := tea.NewProgram(m, tea.WithAltScreen())
+		final, err := p.Run()
+		if err != nil {
+			die(err)
+		}
+		printPicked(final)
+		return
 	}
-	if err := os.Rename(snap, filepath.Join(dir, "docker.log")); err != nil {
-		_ = os.Remove(snap)
-		die(err)
+	target.Name = rest[0]
+	logPath := filepath.Join(dir, kind+".log")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if follow {
+		fmt.Fprintf(os.Stderr, "正在跟随 %s %s 的日志（初始 tail %d 行，Ctrl+C 退出）…\n",
+			kind, target.Name, logTail)
+		if err := logs.Follow(ctx, target, logTail, logPath); err != nil {
+			die(err)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "正在抓取 %s %s 最近 %d 行日志…\n", kind, target.Name, logTail)
+		snap, err := logs.Snapshot(ctx, nil, target, logTail)
+		if err != nil {
+			die(err)
+		}
+		if err := os.Rename(snap, logPath); err != nil {
+			_ = os.Remove(snap)
+			die(err)
+		}
 	}
 
-	m := tui.New(tui.Config{
+	cfg := tui.Config{
 		Root:        dir,
 		Mode:        tui.ModeContent,
 		ImgProto:    preview.ProtocolNone,
 		RgAvailable: true,
-		Title:       "docker:" + container,
+		Title:       kind + ":" + target.Name,
 		PickLine:    true, // Enter 输出选中日志行（快照文件退出即删）
-	})
+	}
+	if follow {
+		cfg.FollowFile = logPath
+	}
+	m := tui.New(cfg)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {

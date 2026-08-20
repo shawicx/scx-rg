@@ -5,13 +5,16 @@ package tui
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"scx-rg/internal/logs"
 	"scx-rg/internal/preview"
 	"scx-rg/internal/search"
 )
@@ -42,6 +45,18 @@ type Config struct {
 	Title string
 	// PickLine 为 true 时 Enter 输出选中行文本而非文件路径（临时日志快照等场景）。
 	PickLine bool
+	// FollowFile 非空时进入跟随模式：轮询该文件增长并自动刷新当前查询（tail -f 式）。
+	FollowFile string
+
+	// 源选择器（scx-rg docker / scx-rg k8s 无参数进入）
+	PickerKind  string // "docker" | "kubectl"
+	SnapshotDir string // 快照落盘目录（由 main 创建与清理）
+	FollowPick  bool   // 选中目标后跟随而非一次性快照
+	LogTail     int    // 抓取行数上限（0 = 默认 100000）
+	// 以下可注入 fake 以便测试；为 nil 时调用 logs 包真实实现。
+	ListSources func(ctx context.Context, kind string) ([]logs.Source, error)
+	FetchLog    func(ctx context.Context, t logs.Target) (string, error)
+	FollowLog   func(ctx context.Context, t logs.Target, path string) error
 }
 
 type (
@@ -103,6 +118,32 @@ type Model struct {
 	prevLang    string
 	prevLoading bool
 
+	// 跟随模式状态
+	followSize int64  // 上次观测到的快照文件大小
+	followKeep string // 刷新时待恢复的选中项（path:line）
+	onceMode   bool   // RenderOnce 调试路径：禁用周期性 tick
+
+	// 可视化筛选栏（Ctrl+T）：客户端过滤，不重新抓取
+	rangeBar  bool            // 筛选栏打开且聚焦
+	rangeSeg  int             // 0=时间 1=条数
+	rangeSel  [2]int          // 两段的光标位置
+	filterDur time.Duration   // 时间筛选，0=全部
+	filterCap int             // 条数封顶（保留最新 N 条），0=全部
+	raw       []search.Result // 未过滤结果缓冲（与流式封顶一致）
+	tsOK      bool            // 本轮结果中检测到行首时间戳
+
+	// 源选择器状态
+	picking      bool          // 处于「选目标」阶段
+	pickerKind   string        // docker | kubectl
+	pickerSrcs   []logs.Source // 全量列表
+	pickerView   []logs.Source // 过滤后的可见列表
+	pickerName   string        // Enter 选中的目标名
+	pickLoading  bool          // 抓取中
+	listLoading  bool          // 列表加载中
+	snapshotDir  string
+	followPick   bool
+	cancelFollow context.CancelFunc // 跟随进程的取消句柄
+
 	picked string
 }
 
@@ -119,15 +160,37 @@ func New(cfg Config) *Model {
 	ti.Focus()
 
 	m := &Model{cfg: cfg, root: cfg.Root, mode: cfg.Mode, input: ti}
-	if m.mode == ModeContent && !cfg.RgAvailable {
+	if m.mode == ModeContent && !cfg.RgAvailable && cfg.PickerKind == "" {
 		m.mode = ModeFiles
+	}
+	if cfg.FollowFile != "" {
+		if st, err := os.Stat(cfg.FollowFile); err == nil {
+			m.followSize = st.Size() // 以当前大小为基线，之后增长才触发刷新
+		}
+	}
+	if cfg.PickerKind != "" {
+		m.picking = true
+		m.pickerKind = cfg.PickerKind
+		m.snapshotDir = cfg.SnapshotDir
+		m.followPick = cfg.FollowPick
+		m.listLoading = true
+		m.mode = ModeContent
+		ti.Placeholder = "输入名称过滤，实时匹配…"
 	}
 	return m
 }
 
-// Init 启动时立即触发一次空查询搜索（files 模式列出全部文件）。
+// Init 启动时立即触发一次空查询搜索（files 模式列出全部文件）；
+// 选择器模式改为加载源列表，不发搜索。
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, tickDebounce(m.version, 0))
+	if m.picking {
+		return tea.Batch(textinput.Blink, m.loadPicker())
+	}
+	cmds := []tea.Cmd{textinput.Blink, tickDebounce(m.version, 0)}
+	if m.following() {
+		cmds = append(cmds, followTick())
+	}
+	return tea.Batch(cmds...)
 }
 
 func tickDebounce(v uint64, d time.Duration) tea.Cmd {
@@ -156,6 +219,8 @@ func (m *Model) runSearch() tea.Cmd {
 	v := m.version
 
 	m.results = nil
+	m.raw = nil
+	m.tsOK = false
 	m.sel, m.offset = 0, 0
 	m.vp.SetContent("")
 	m.prevPath = ""
@@ -228,7 +293,13 @@ func (m *Model) stopSearch() {
 	m.searching = false
 }
 
-func (m *Model) panelH() int      { return max(0, m.height-4) }
+func (m *Model) panelH() int {
+	h := m.height - 4
+	if m.rangeBar {
+		h -= 2 // 筛选栏占两行
+	}
+	return max(0, h)
+}
 func (m *Model) listVisible() int { return max(0, m.panelH()-3) }
 
 func (m *Model) adjustOffset() {
@@ -295,6 +366,7 @@ func (m *Model) PickedPath() string { return m.picked }
 
 // RenderOnce 不启动事件循环，同步跑完搜索与预览后渲染一帧（--once 调试用）。
 func (m *Model) RenderOnce(w, h int, query, focus string) string {
+	m.onceMode = true
 	_, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	if query != "" {
 		m.input.SetValue(query)
@@ -309,6 +381,7 @@ func (m *Model) RenderOnce(w, h int, query, focus string) string {
 }
 
 // drain 同步驱动 cmd/msg 链直到结束，模拟 bubbletea 事件循环（展开 BatchMsg）。
+// 光标闪烁等纯装饰性周期消息会被丢弃，否则其自续链会让同步驱动器永远跑不完。
 // 上限足够消费完一条流的最大结果数。
 func (m *Model) drain(cmd tea.Cmd) {
 	pending := []tea.Cmd{cmd}
@@ -324,6 +397,9 @@ func (m *Model) drain(cmd tea.Cmd) {
 		}
 		if batch, ok := msg.(tea.BatchMsg); ok {
 			pending = append(pending, batch...)
+			continue
+		}
+		if _, ok := msg.(cursor.BlinkMsg); ok {
 			continue
 		}
 		_, next := m.Update(msg)
