@@ -38,6 +38,10 @@ type Config struct {
 	Debounce    time.Duration
 	ImgProto    preview.Protocol
 	RgAvailable bool
+	// Title 非空时替代头部默认标题（如 "docker:web"）。
+	Title string
+	// PickLine 为 true 时 Enter 输出选中行文本而非文件路径（临时日志快照等场景）。
+	PickLine bool
 }
 
 type (
@@ -246,11 +250,9 @@ func (m *Model) followSelection() tea.Cmd {
 		return nil
 	}
 	r := m.results[m.sel]
-	if r.Path == m.prevPath {
-		if r.Line > 0 && r.Line != m.prevJump {
-			m.prevJump = r.Line
-			m.scrollToJump(r.Line, m.prevLines)
-		}
+	// 同文件同行才免重渲染；行变化（内容模式）需按新行号重开窗口——
+	// 窗口化渲染里真实行号≠物理行号，仅滚动会错位
+	if r.Path == m.prevPath && r.Line == m.prevJump {
 		return nil
 	}
 	m.prevPath = r.Path

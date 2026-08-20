@@ -62,6 +62,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.version != m.version {
 			return m, nil // 过期结果
 		}
+		if msg.result.Err != nil {
+			// 搜索本身失败（如非法正则）：终止消费并展示错误
+			m.searchErr = msg.result.Err
+			m.stopSearch()
+			return m, nil
+		}
 		first := len(m.results) == 0
 		m.results = append(m.results, msg.result)
 		var cmds []tea.Cmd
@@ -96,8 +102,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prevLines = strings.Count(ren.Content, "\n") + 1
 		m.prevKind = string(ren.Kind)
 		m.prevLang = ren.Lang
-		if ren.JumpLine > 0 {
-			m.scrollToJump(ren.JumpLine, m.prevLines)
+		// 窗口化渲染时真实行号≠物理行号，滚动必须按物理位置定位
+		offset := ren.JumpOffset
+		if offset <= 0 {
+			offset = ren.JumpLine
+		}
+		if offset > 0 {
+			m.scrollToJump(offset, m.prevLines)
 		} else {
 			m.vp.GotoTop()
 		}
@@ -123,7 +134,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		m.stopSearch()
 		if len(m.results) > 0 && m.sel < len(m.results) {
-			m.picked = filepath.Join(m.root, m.results[m.sel].Path)
+			if m.cfg.PickLine {
+				m.picked = m.results[m.sel].Text
+			} else {
+				m.picked = filepath.Join(m.root, m.results[m.sel].Path)
+			}
 		}
 		return m, tea.Quit
 

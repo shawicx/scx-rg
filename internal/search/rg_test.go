@@ -23,6 +23,49 @@ func drain(ch <-chan Result, timeout time.Duration) (int, bool) {
 	}
 }
 
+func TestSearchStreamNoMatchIsNotError(t *testing.T) {
+	if !RgAvailable() {
+		t.Skip("rg 未安装")
+	}
+	dir := writeTree(t, map[string]string{"a.txt": "hello\n"}, false)
+	ch, err := (RipgrepProvider{}).SearchStream(context.Background(), dir, "zzz_not_exist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, closed := drain(ch, 5*time.Second)
+	if !closed {
+		t.Fatal("channel 应正常关闭")
+	}
+	if n != 0 {
+		t.Fatalf("无匹配应静默结束（rg 退出码 1 是正常语义），不应传回错误结果，收到 %d 条", n)
+	}
+}
+
+func TestSearchStreamBadRegexSurfacesError(t *testing.T) {
+	if !RgAvailable() {
+		t.Skip("rg 未安装")
+	}
+	dir := writeTree(t, map[string]string{"a.txt": "hello\n"}, false)
+	ch, err := (RipgrepProvider{}).SearchStream(context.Background(), dir, "(unclosed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotErr error
+	n := 0
+	for r := range ch {
+		n++
+		if r.Err != nil {
+			gotErr = r.Err
+		}
+	}
+	if gotErr == nil {
+		t.Fatalf("非法正则应通过结果流传回错误（当前收到 %d 条结果）", n)
+	}
+	if gotErr.Error() == "" {
+		t.Fatal("错误信息不应为空")
+	}
+}
+
 func TestSearchStreamFindsMatches(t *testing.T) {
 	if !RgAvailable() {
 		t.Skip("rg 未安装")

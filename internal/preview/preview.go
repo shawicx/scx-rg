@@ -21,6 +21,7 @@ const (
 	KindCode     Kind = "code"
 	KindImage    Kind = "image"
 	KindBinary   Kind = "binary"
+	KindEmpty    Kind = "empty"
 	KindTooLarge Kind = "too-large"
 	KindMissing  Kind = "missing"
 )
@@ -29,8 +30,11 @@ const (
 type Rendered struct {
 	Kind     Kind
 	Content  string // 完整可显示内容（含 ANSI）
-	JumpLine int    // 1 起始的跳转行；0 表示不跳
-	Lang     string
+	JumpLine int    // 1 起始的跳转行（真实行号）；0 表示不跳
+	// JumpOffset 是 jump 行在 Content 中的物理行号（1 起始）。
+	// 窗口化渲染时真实行号≠物理行号，滚动定位必须用它；0 表示退回 JumpLine。
+	JumpOffset int
+	Lang       string
 }
 
 var imageExts = map[string]bool{

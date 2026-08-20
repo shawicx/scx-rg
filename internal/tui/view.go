@@ -22,8 +22,11 @@ func (m *Model) View() string {
 }
 
 func (m *Model) headerView() string {
-	title := styleAppTitle.Render(" scx-rg ")
-	inner := title + " " + m.input.View()
+	name := " scx-rg "
+	if m.cfg.Title != "" {
+		name = " " + m.cfg.Title + " "
+	}
+	inner := styleAppTitle.Render(name) + " " + m.input.View()
 	inner = ansiTruncate(inner, m.width-4)
 	return styleInputBox.Width(m.width - 2).Render(inner)
 }
