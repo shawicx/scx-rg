@@ -3,3 +3,6 @@ scx-rg
 *.test
 .idea/
 scx-rg-linux
+dist/
+
+.zcode

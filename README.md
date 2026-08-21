@@ -2,6 +2,24 @@
 
 终端里的实时搜索 + 预览工具。Go + [Bubble Tea](https://github.com/charmbracelet/bubbletea) + [Lipgloss](https://github.com/charmbracelet/lipgloss)。
 
+## 安装
+
+从 [Releases](https://github.com/shawricx/scx-rg/releases) 下载对应平台的 `scx-rg_<版本>_<os>_<arch>.tar.gz`（macOS / Linux × amd64 / arm64）：
+
+```bash
+tar -xzf scx-rg_0.1.0_darwin_arm64.tar.gz
+sudo mv scx-rg /usr/local/bin/
+scx-rg --version    # scx-rg 0.1.0 (commit …, built …, darwin/arm64)
+```
+
+建议先核对校验和（与压缩包同目录的 `scx-rg_<版本>_checksums.txt`）：
+
+```bash
+shasum -a 256 --check scx-rg_0.1.0_checksums.txt --ignore-missing
+```
+
+macOS 首次运行未签名二进制若被 Gatekeeper 拦截：`xattr -d com.apple.quarantine /usr/local/bin/scx-rg`。
+
 ## 功能
 
 - **实时防抖搜索**：输入即搜（默认 200ms 防抖），过期结果自动丢弃（版本号判废）
@@ -119,11 +137,23 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 -mode string    files | content（默认 files）
 -img string     auto | kitty | sixel | none（默认 auto，按环境变量探测）
 -debounce-ms    搜索防抖间隔（默认 200）
+-version        输出版本信息并退出
 -once           渲染一帧后退出（调试/CI 冒烟）
 -q string       配合 --once 模拟搜索词
 -preview-file   配合 --once 强制预览指定文件
 -w / -h         配合 --once 的渲染尺寸
 ```
+
+## 发版（维护者）
+
+版本号以 git tag（`vX.Y.Z`）为唯一来源，发版不需要改任何代码：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+推送 tag 后 GitHub Actions 自动跑测试、交叉编译 macOS/Linux × amd64/arm64 四个平台的压缩包，并创建 GitHub Release（附 sha256 校验和与 changelog）。本地 `go build` 出来的二进制 `--version` 显示 `dev`，正式版本号在 CI 构建时注入。
 
 ## 架构
 

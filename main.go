@@ -38,8 +38,14 @@ func main() {
 		onceH       = flag.Int("h", 40, "--once 渲染高度")
 		onceQuery   = flag.String("q", "", "--once 模拟输入的搜索词")
 		oncePreview = flag.String("preview-file", "", "--once 强制预览指定文件")
+		versionFlag = flag.Bool("version", false, "输出版本信息并退出")
 	)
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("scx-rg %s (commit %s, built %s, %s/%s)\n", version, commit, date, runtime.GOOS, runtime.GOARCH)
+		return
+	}
 
 	proto := preview.ParseProtocol(*imgFlag)
 	if proto == preview.ProtocolAuto {
