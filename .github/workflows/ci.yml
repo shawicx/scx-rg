@@ -34,3 +34,12 @@ jobs:
         with:
           version: "~> v2"
           args: check
+
+      - name: git-cliff config check
+        if: matrix.os == 'ubuntu-latest'
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --unreleased
+        env:
+          GITHUB_REPO: ${{ github.repository }}

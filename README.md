@@ -153,7 +153,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-推送 tag 后 GitHub Actions 自动跑测试、交叉编译 macOS/Linux × amd64/arm64 四个平台的压缩包，并创建 GitHub Release（附 sha256 校验和与 changelog）。本地 `go build` 出来的二进制 `--version` 显示 `dev`，正式版本号在 CI 构建时注入。
+推送 tag 后 GitHub Actions 自动跑测试、交叉编译 macOS/Linux × amd64/arm64 四个平台的压缩包，并创建 GitHub Release（附 sha256 校验和）。Release 正文由 [git-cliff](https://git-cliff.org) 按 conventional commit 前缀自动生成分组变更记录（`🚀 新功能` / `🐛 Bug 修复` 等，配置见 `cliff.toml`）。本地 `go build` 出来的二进制 `--version` 显示 `dev`，正式版本号在 CI 构建时注入。
 
 ## 架构
 
