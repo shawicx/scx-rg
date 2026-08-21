@@ -131,6 +131,7 @@ type Model struct {
 	filterCap   int              // 条数封顶（保留最新 N 条），0=全部
 	raw         []search.Result  // 未过滤结果缓冲（与流式封顶一致）
 	tsOK        bool             // 本轮结果中检测到行首时间戳
+	windowed    bool             // 日志模式：命中超窗，列表冻结待流结束重算为最新窗口
 	liveTicking bool             // 实时滑动窗口的 tick 链运转中
 	now         func() time.Time // 可注入时钟（测试模拟时间流逝）
 
@@ -231,6 +232,7 @@ func (m *Model) runSearch() tea.Cmd {
 	m.results = nil
 	m.raw = nil
 	m.tsOK = false
+	m.windowed = false
 	m.sel, m.offset = 0, 0
 	m.vp.SetContent("")
 	m.prevPath = ""

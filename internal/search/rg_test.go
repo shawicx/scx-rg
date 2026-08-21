@@ -134,12 +134,12 @@ func TestSearchStreamCancelClosesPromptly(t *testing.T) {
 	}
 }
 
-func TestSearchStreamCapsAtMaxResults(t *testing.T) {
+func TestSearchStreamStreamsAllMatches(t *testing.T) {
 	if !RgAvailable() {
 		t.Skip("rg 未安装")
 	}
 	files := map[string]string{}
-	for f := 0; f < 30; f++ { // 30 文件 × 每文件 20 处匹配 = 600 条候选，验证全局封顶
+	for f := 0; f < 30; f++ { // 30 文件 × 每文件 20 处匹配 = 600 条候选
 		content := ""
 		for i := 0; i < 20; i++ {
 			content += "needle line\n"
@@ -153,9 +153,10 @@ func TestSearchStreamCapsAtMaxResults(t *testing.T) {
 	}
 	n, closed := drain(ch, 10*time.Second)
 	if !closed {
-		t.Fatal("达到上限后应正常收尾关闭")
+		t.Fatal("流应正常收尾关闭")
 	}
-	if n != MaxResults {
-		t.Fatalf("流式结果数 = %d, 期望封顶 %d", n, MaxResults)
+	// 生产者不再截断：截多少由消费者决定（日志模式要保留最新窗口）
+	if n != 600 {
+		t.Fatalf("流式结果数 = %d, 期望 600（不截断）", n)
 	}
 }

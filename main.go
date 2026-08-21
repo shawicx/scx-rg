@@ -115,20 +115,22 @@ func main() {
 	printPicked(final)
 }
 
-// runLogSource docker/k8s 子命令：抓取日志快照进入全文检索；
-// --follow 持续跟随新日志（tail -f 式）。
+// runLogSource docker/k8s 子命令：默认持续跟随新日志（tail -f 式，
+// 初始内容与一次性快照相同且实时更新）；--snapshot 退回一次性快照。
 func runLogSource(kind string, args []string) {
 	target := logs.Target{Kind: kind}
 	if kind == "k8s" {
 		target.Kind = "kubectl"
 	}
-	var follow bool
+	var snapshot, legacyFollow bool
 	fs := flag.NewFlagSet(kind, flag.ContinueOnError)
-	fs.BoolVar(&follow, "follow", false, "持续跟随新日志（tail -f 式）")
-	fs.BoolVar(&follow, "f", false, "--follow 简写")
+	fs.BoolVar(&snapshot, "snapshot", false, "只抓取一次快照，不跟随（默认跟随）")
+	fs.BoolVar(&legacyFollow, "follow", false, "（默认已跟随，兼容保留）")
+	fs.BoolVar(&legacyFollow, "f", false, "（默认已跟随，兼容保留）")
 	fs.StringVar(&target.Namespace, "n", "", "namespace（k8s）")
 	fs.StringVar(&target.Container, "c", "", "指定容器（k8s 多容器 Pod）")
 	_ = fs.Parse(args)
+	follow := legacyFollow || !snapshot // 日志是活数据：默认跟随，避免「搜不到最新日志」
 
 	if !target.Available() {
 		die(fmt.Errorf("未找到 %s 命令", target.Bin()))
@@ -143,7 +145,7 @@ func runLogSource(kind string, args []string) {
 	}
 	defer os.RemoveAll(dir)
 
-	// 无参数：进入源选择器（免记忆）；--follow 选中后跟随。
+	// 无参数：进入源选择器（免记忆），选中后按上述默认跟随/快照。
 	rest := fs.Args()
 	if len(rest) == 0 {
 		m := tui.New(tui.Config{
@@ -171,13 +173,13 @@ func runLogSource(kind string, args []string) {
 	defer cancel()
 
 	if follow {
-		fmt.Fprintf(os.Stderr, "正在跟随 %s %s 的日志（初始 tail %d 行，Ctrl+C 退出）…\n",
+		fmt.Fprintf(os.Stderr, "正在跟随 %s %s 的日志（初始 tail %d 行，实时更新，Ctrl+C 退出）…\n",
 			kind, target.Name, logTail)
 		if err := logs.Follow(ctx, target, logTail, logPath); err != nil {
 			die(err)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "正在抓取 %s %s 最近 %d 行日志…\n", kind, target.Name, logTail)
+		fmt.Fprintf(os.Stderr, "正在抓取 %s %s 最近 %d 行日志快照…\n", kind, target.Name, logTail)
 		snap, err := logs.Snapshot(ctx, nil, target, logTail)
 		if err != nil {
 			die(err)

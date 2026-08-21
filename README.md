@@ -16,16 +16,18 @@
 ## Docker / Kubernetes / 服务器日志检索
 
 ```bash
-scx-rg docker                        # 交互选择容器（模糊过滤，免记名字）
-scx-rg docker <容器名>                # 直达：抓取最近 100000 行日志快照，进入全文检索
-scx-rg docker --follow               # 选择容器后 tail -f 式实时追新
-scx-rg docker <容器名> --follow       # 直达 + 实时追新
+scx-rg docker                        # 交互选择容器（模糊过滤，免记名字），默认实时跟随
+scx-rg docker <容器名>                # 直达：tail 最近 100000 行并实时跟随
+scx-rg docker <容器名> --snapshot     # 只抓一次快照（不跟随）
 
-scx-rg k8s                           # 交互选择 Pod
-scx-rg k8s <Pod名> [-n namespace] [-c 容器] [--follow]
+scx-rg k8s                           # 交互选择 Pod，默认实时跟随
+scx-rg k8s <Pod名> [-n namespace] [-c 容器] [--snapshot]
 
 scx-rg --follow /var/log/app.log     # 本地服务器日志实时跟随
 ```
+
+- **默认跟随**：日志是活数据，`docker logs -f --tail` 的初始内容与快照完全相同，且此后实时更新——不会再出现「刚产生的日志搜不到」；`--snapshot` 退回一次性快照
+- **最新优先**：命中数很多时（如搜 `INFO`），日志模式保留**最新的 5000 条命中**（旧的滚出），配合 Ctrl+T 条数/时间筛选进一步收窄
 
 ### 容器 / Pod 选择器
 

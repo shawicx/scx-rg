@@ -91,9 +91,6 @@ func (p RipgrepProvider) SearchStream(ctx context.Context, root, query string) (
 				return
 			}
 			count++
-			if count >= MaxResults {
-				break
-			}
 		}
 		waitErr := cmd.Wait()
 		// rg 退出码语义：0=有匹配，1=无匹配（正常），2+=错误。

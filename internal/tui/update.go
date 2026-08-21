@@ -10,6 +10,10 @@ import (
 	"scx-rg/internal/search"
 )
 
+// logWindow 日志模式保留的最新命中窗口大小：命中按时间顺序流式到达，
+// 超出窗口丢最旧的，保证最新日志始终可见（代码搜索仍是前 MaxResults 条）。
+const logWindow = 5000
+
 // Update 处理窗口变化、防抖到期、搜索/预览回包与按键。
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -97,37 +101,47 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tsOK = true
 			}
 		}
-		first := len(m.results) == 0
-		if m.resultPasses(msg.result) {
+		var cmds []tea.Cmd
+		if !m.windowed && m.resultPasses(msg.result) {
+			first := len(m.results) == 0
 			m.results = append(m.results, msg.result)
 			m.trimResultsCap()
-			var cmds []tea.Cmd
 			if first {
 				cmds = append(cmds, m.followSelection()) // 首条结果到达时让预览跟上
 			}
 			if cmd := m.tryRestoreSelection(); cmd != nil {
 				cmds = append(cmds, cmd) // 跟随刷新后恢复选中项
 			}
-			if len(m.results) >= search.MaxResults {
-				m.stopSearch() // 封顶：杀掉 rg，剩余结果丢弃
-			} else {
-				cmds = append(cmds, m.waitForResult(m.streamCh, msg.version))
-			}
-			return m, tea.Batch(cmds...)
 		}
-		if len(m.raw) >= search.MaxResults {
-			m.stopSearch() // raw 封顶（过滤后条数不足也要停）
+		if m.cfg.PickLine {
+			// 日志模式：命中按时间顺序到达，超出窗口时丢最旧的——
+			// 否则大命中量下永远只能看到最前面那批旧日志。
+			// 进入窗口模式后显示列表冻结，流结束后整体重算。
+			if len(m.raw) > logWindow {
+				m.raw = m.raw[len(m.raw)-logWindow:]
+				m.windowed = true
+			}
+			return m, tea.Batch(append(cmds, m.waitForResult(m.streamCh, msg.version))...)
+		}
+		if len(m.results) >= search.MaxResults || len(m.raw) >= search.MaxResults {
+			m.stopSearch() // 封顶：杀掉 rg，剩余结果丢弃
 			return m, nil
 		}
-		return m, m.waitForResult(m.streamCh, msg.version)
+		return m, tea.Batch(append(cmds, m.waitForResult(m.streamCh, msg.version))...)
 
 	case streamDoneMsg:
 		if msg.version != m.version {
 			return m, nil
 		}
 		m.stopSearch()
+		var cmd tea.Cmd
+		if m.windowed {
+			// 滑动窗口消费完毕：以最新窗口重建列表（按 key/索引保位）
+			m.windowed = false
+			cmd = m.refilter(true)
+		}
 		m.clearStaleKeep()
-		return m, nil
+		return m, cmd
 
 	case previewMsg:
 		if msg.path != m.prevPath {
