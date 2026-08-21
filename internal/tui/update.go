@@ -85,6 +85,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case liveTickMsg:
 		return m, m.handleLiveTick()
 
+	case pagerDoneMsg:
+		if msg.err != nil {
+			m.notice = "翻页器异常退出: " + msg.err.Error()
+		}
+		return m, nil
+
 	case resultMsg:
 		if msg.version != m.version {
 			return m, nil // 过期结果
@@ -215,6 +221,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyCtrlT:
 		return m, m.toggleRangeBar()
+
+	case tea.KeyCtrlO:
+		return m, m.openInPager()
+
+	case tea.KeyCtrlY:
+		return m, m.copySelection()
 
 	case tea.KeyTab:
 		if m.mode == ModeFiles {

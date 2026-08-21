@@ -59,6 +59,23 @@ vim "$(./scx-rg -mode content -q TODO)"
 
 内容模式需要安装 [ripgrep](https://github.com/BurntSushi/ripgrep)（`brew install ripgrep`）。
 
+### Linux 交叉编译（部署服务器）
+
+在 macOS 上直接产出 Linux 静态二进制（CGO 关闭，零依赖，服务器不需要装 Go）：
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o scx-rg-linux .
+
+# 校验后传到服务器（传完先核对 sha256，排除传输损坏）
+shasum -a 256 scx-rg-linux
+scp scx-rg-linux user@server:/usr/local/bin/scx-rg
+
+# ARM 服务器（如树莓派/国产 ARM 云主机）改 GOARCH 即可
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
+```
+
+服务器上只需要 [ripgrep](https://github.com/BurntSushi/ripgrep)（`apt install ripgrep` 或 `yum install ripgrep`）。
+
 ## 按键
 
 | 按键 | 作用 |
@@ -67,10 +84,19 @@ vim "$(./scx-rg -mode content -q TODO)"
 | `↑` `↓` / `Ctrl+P` `Ctrl+N` | 选择结果 |
 | `Tab` | 切换 文件/内容 模式 |
 | `Ctrl+T` | 打开可视化筛选栏（时间范围 / 条数封顶） |
+| `Ctrl+O` | 在 less 中打开当前预览文件（自由选择复制文本，`q` 返回） |
+| `Ctrl+Y` | 复制选中行（日志模式）/ 绝对路径（文件模式）到剪贴板 |
 | `PgUp` `PgDown` | 滚动预览 |
 | `Enter` | 选定（stdout 输出路径）并退出 |
 | `Esc` | 清空搜索词；已空则退出 |
 | `Ctrl+C` | 退出 |
+
+### 复制文本
+
+全屏 TUI 里终端原生选择会把边框和双面板一起框住，没法只选预览里的文本。两个出口：
+
+- **`Ctrl+O` 翻页器**：临时释放终端，在 less 中打开当前预览的文件（自动定位到选中行）——纯文本环境里随意滚动、选择、复制，还能用 less 自带的 `/` 搜索，`q` 返回 TUI
+- **`Ctrl+Y` 剪贴板**：走 OSC 52 转义序列，SSH 远程会话同样有效。iTerm2 需开启 `Applications in terminal may access clipboard`；tmux 需 `set -g set-clipboard on`
 
 ### 可视化筛选栏（Ctrl+T）
 

@@ -196,10 +196,13 @@ func (m *Model) statusView() string {
 	left += fmt.Sprintf("%d 项", len(m.results))
 	left += m.filterStatus()
 	left += m.followStatus()
+	if m.notice != "" {
+		left += " · " + styleMatch.Render(m.notice)
+	}
 	if m.searchErr != nil {
 		left += " · " + styleErrText.Render(m.searchErr.Error())
 	}
-	right := "Tab 模式 · Ctrl+T 筛选 · ↑↓ 选择 · PgUp/PgDn 滚动 · Enter 选定 · Esc 清空"
+	right := "Ctrl+O 翻页复制 · Ctrl+Y 复制行 · Ctrl+T 筛选 · Enter 选定 · Esc 清空"
 	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad > 0 {
 		left += strings.Repeat(" ", pad)

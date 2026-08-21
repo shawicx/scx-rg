@@ -147,6 +147,10 @@ type Model struct {
 	followPick   bool
 	cancelFollow context.CancelFunc // 跟随进程的取消句柄
 
+	// 复制/翻页
+	writeClipboard func(s string) error // 默认 OSC 52 → /dev/tty，可注入 fake
+	notice         string               // 状态栏临时提示（复制成功等）
+
 	picked string
 }
 
@@ -233,6 +237,7 @@ func (m *Model) runSearch() tea.Cmd {
 	m.raw = nil
 	m.tsOK = false
 	m.windowed = false
+	m.notice = ""
 	m.sel, m.offset = 0, 0
 	m.vp.SetContent("")
 	m.prevPath = ""
