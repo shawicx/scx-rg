@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -55,6 +56,35 @@ func TestListFilesRespectsGitignoreAndHidden(t *testing.T) {
 	}
 	if want := []string{"a.go"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("rg --files 枚举 = %v, 期望 %v（应尊重 .gitignore 且排除隐藏目录）", got, want)
+	}
+}
+
+// rg 遍历中遇到个别不可读目录（macOS 隐私保护目录报 Operation not permitted）
+// 会以退出码 2 结束，但 stdout 已有的枚举结果仍然有效，不应整体失败
+// （2026-08-22 修复：在 ~ 目录下整帧报「rg --files 失败: exit status 2」）。
+func TestListFilesToleratesUnreadableSubdir(t *testing.T) {
+	if !RgAvailable() {
+		t.Skip("rg 未安装")
+	}
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("Windows / root 环境下 chmod 000 不构成读障碍")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(locked, 0o755) //nolint:errcheck // 恢复权限以便 t.TempDir 清理
+
+	got, err := ListFiles(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("个别目录不可读不应整体失败: %v", err)
+	}
+	if want := []string{"a.txt"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("枚举 = %v, 期望 %v", got, want)
 	}
 }
 

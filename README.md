@@ -28,7 +28,7 @@ macOS 首次运行未签名二进制若被 Gatekeeper 拦截：`xattr -d com.app
   - 内容模式：`rg --json` 流式解析，结果边搜边出；输入变化立即杀掉上一轮 rg 进程；查询默认按正则解析，**不是合法正则时自动按字面量兜底**（搜 `log.error(` 这类含元字符的文本不报错，状态栏提示），`Ctrl+F` 可手动粘性切换字面量（-F）/正则
 - **多面板预览**：左侧结果列表、右侧预览面板
   - 代码：chroma 语法高亮 + 行号槽，内容模式自动跳转到匹配行
-  - 图片：kitty 图形协议 / sixel 协议直接在终端内渲染，不支持时显示占位提示
+  - 图片：三档渲染——kitty 图形协议 / sixel 协议直接在终端内显示，均不可用时降级 halfblock（`▀` 半块字符 + truecolor/256 色，任何彩色终端可用）；GIF 显示首帧
 - **fzf 式工作流**：`Enter` 退出并把选中文件绝对路径打印到 stdout，可接管道
 
 ## Docker / Kubernetes / 服务器日志检索
@@ -136,7 +136,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 ```
 -path string    搜索根目录（默认 .）
 -mode string    files | content（默认 files）
--img string     auto | kitty | sixel | none（默认 auto，按环境变量探测）
+-img string     auto | kitty | sixel | halfblock | none（默认 auto，自动探测：环境变量 → DA1 查询 → halfblock 兜底）
 -debounce-ms    搜索防抖间隔（默认 200）
 -version        输出版本信息并退出
 -once           渲染一帧后退出（调试/CI 冒烟）
@@ -144,6 +144,27 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 -preview-file   配合 --once 强制预览指定文件
 -w / -h         配合 --once 的渲染尺寸
 ```
+
+## 图片预览协议
+
+自动探测按优先级选择渲染档位：
+
+1. **kitty 图形协议**：`KITTY_WINDOW_ID` / `TERM` 含 kitty / ghostty / `WEZTERM_PANE` 等环境标志（kitty 协议没有 DA1 标志位，环境变量是唯一可靠依据）
+2. **sixel**：启动时向控制终端发 DA1 查询（`ESC[c`，raw mode + 150ms 超时），响应属性含 `4` 即支持——覆盖 xterm `-ti vt340`、alacritty-sixel、st 等无环境标志的终端；查询无响应时回退 `TERM` 启发式（foot / yaft / mlterm）
+3. **halfblock**：`▀` 半块字符 + 前景/背景双色（每字符格承载上下两个像素行），按终端能力自动降级 truecolor → 256 色 → 16 色，任何彩色终端可用
+
+`--img none` 显式禁用（显示文件信息占位盒）；无色彩能力的输出（管道 / CI）同样回退占位盒。
+
+### 真机实测 checklist（M3）
+
+代码侧防残留已内建并有测试覆盖，以下需在真终端人工确认（素材 `testdata/demo.png`）：
+
+- [ ] kitty / ghostty / wezterm：`scx-rg testdata`（或 `--img kitty`）选中 demo.png，图片在预览面板内正确显示
+- [ ] 上下切换「图片 ↔ 代码 ↔ 图片」：旧图立即消失，无残影、不错位
+- [ ] 窗口 resize：图片随面板重绘，尺寸跟随
+- [ ] `Esc` 退出 / `Enter` 选定退出后：终端内无图像残留（退出时会主动发 kitty 图形清除序列）
+- [ ] sixel 终端（foot / xterm -ti vt340 / wezterm `--img sixel`）：同上切换与退出场景
+- [ ] 普通终端（iTerm2 / Apple Terminal / VSCode）：自动降级 halfblock，`▀` 半块图色彩正确、边框对齐
 
 ## 发版（维护者）
 
@@ -169,9 +190,11 @@ internal/
   preview/
     preview.go              Render 入口：按扩展名分发
     code.go                 chroma 高亮 + 行号槽 + 匹配行标记
-    image.go                kitty/sixel 图形协议编码
+    image.go                kitty/sixel 图形协议编码 + 图形删除清理
+    halfblock.go            半块字符 + truecolor/256 色的第三档渲染
     cellsize_unix.go        TIOCGWINSZ 取单元格像素尺寸
-    protocol.go             图形协议探测（环境变量启发式）
+    protocol.go             图形协议探测（环境变量 → DA1 → halfblock）
+    da1_unix.go             DA1 查询（raw mode + 超时读，探测 sixel）
   tui/
     model.go                状态 + 消息定义 + 搜索/预览命令与流式消费链
     update.go               事件处理（按键、防抖到期、流式/同步回包）
@@ -192,8 +215,10 @@ go test ./...
 ## 已知限制 / Roadmap
 
 - IDE 运行窗/管道等无 TTY 环境会自动降级为单帧渲染（提示后以 `--once` 效果输出），交互模式请在真实终端运行
-- 图片协议探测靠环境变量启发式；sixel 精确探测需 DA1 查询（待实现）
-- 预览区滚动大图时图形序列可能被 viewport 切分（待验证/优化）
+- 图片渲染防残留机制已内建（换图前删旧 placement、切走时注入删除序列、退出时清空全部图形、图片预览禁滚动）；kitty overlay 与文本滚动的完全同步需独立渲染层，列入 backlog
+- SSH 远程使用时环境变量不透传，本地 kitty 可能被探测为 halfblock——可 `--img kitty` 强制指定（或在 SSH 配置 `SetEnv KITTY_WINDOW_ID`）
+- 「歧义宽=2」终端（如开启 iTerm2 ambiguous double 选项）中 halfblock 的 `▀` 字符会按 2 格渲染导致错位，可用 `--img none` 关闭
+- GIF 只显示首帧（动画播放列入 backlog）
 - 文件模式为子串匹配，后续可换模糊匹配 + 排序评分
 - 列表无虚拟化（当前上限 500 条，够用）
 - 预览长行按面板宽度折行显示（行号只在首段），单行最多折 10 段、超出以 ... 标记（防超长 JSON 行撑爆视口）；界面字符与折行宽度按「歧义宽字符=2 格」保守计算，避免中文终端（如开启 iTerm2 歧义宽选项）整帧错位

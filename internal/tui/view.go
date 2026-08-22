@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
+
+	"scx-rg/internal/preview"
 )
 
 // View 自上而下：搜索框 → [筛选栏] → [结果列表 | 预览面板] → 状态栏。
@@ -152,7 +154,14 @@ func (m *Model) previewView() string {
 	case m.prevLoading:
 		body = stylePlaceholder.Render("加载预览...")
 	case m.prevPath == "":
-		body = stylePlaceholder.Render("选中左侧结果后在此预览")
+		hint := stylePlaceholder.Render("选中左侧结果后在此预览")
+		if m.imgActive {
+			// 预览被清空（新搜索/无结果）：overlay 图形只能借渲染流送出删除
+			// 序列——缀在提示文本前（零宽不可见）。标志就地消费，只发一次。
+			hint = preview.KittyDeleteImage + hint
+			m.imgActive = false
+		}
+		body = hint
 	}
 	if m.prevPath != "" {
 		title += " " + styleDim.Render(m.prevPath)

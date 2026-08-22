@@ -123,6 +123,9 @@ type Model struct {
 	prevKind    string
 	prevLang    string
 	prevLoading bool
+	// imgActive 当前预览内容含 kitty 图形序列：overlay 图形不随文本替换消失，
+	// 切到其他内容时须显式注入删除序列（见 setPreviewContent / previewView）
+	imgActive bool
 	// 预览渲染缓存（切选回访免重渲）与可注入渲染函数（默认 preview.Render，测试可换 fake 计数）
 	prevCache  *preview.Cache
 	renderFile func(path string, cols, rows int, proto preview.Protocol, jump int, query string) (preview.Rendered, error)
@@ -396,6 +399,22 @@ func (m *Model) followSelection() tea.Cmd {
 	}
 }
 
+// setPreviewContent 预览内容的统一入口：从 kitty 图形切到非图形内容时注入
+// 删除序列前缀——kitty overlay 图形不占字符流，终端不会因文本替换而清除它，
+// 必须显式删除，否则旧图残留在屏幕上。
+func (m *Model) setPreviewContent(s string) {
+	hasGfx := strings.Contains(s, "\x1b_G")
+	if m.imgActive && !hasGfx {
+		s = preview.KittyDeleteImage + s
+	}
+	m.imgActive = hasGfx
+	m.vp.SetContent(s)
+}
+
+// imagePreview 图片预览不滚动：kitty overlay 不随文本滚动，sixel/halfblock
+// 的占位行数已被限制在视口内，滚动只会让图形与文本错位。
+func (m *Model) imagePreview() bool { return m.prevKind == string(preview.KindImage) }
+
 // applyPreview 应用一份预览渲染结果（异步 previewMsg 与缓存命中共用）。
 func (m *Model) applyPreview(path string, ren preview.Rendered, err error) {
 	if path != m.prevPath {
@@ -403,10 +422,10 @@ func (m *Model) applyPreview(path string, ren preview.Rendered, err error) {
 	}
 	m.prevLoading = false
 	if err != nil {
-		m.vp.SetContent(styleErrText.Render("预览失败: " + err.Error()))
+		m.setPreviewContent(styleErrText.Render("预览失败: " + err.Error()))
 		return
 	}
-	m.vp.SetContent(ren.Content)
+	m.setPreviewContent(ren.Content)
 	m.prevLines = strings.Count(ren.Content, "\n") + 1
 	m.prevKind = string(ren.Kind)
 	m.prevLang = ren.Lang

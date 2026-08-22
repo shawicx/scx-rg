@@ -12,10 +12,20 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-sixel"
+	"github.com/muesli/termenv"
 	xdraw "golang.org/x/image/draw"
 )
 
 const kittyChunkSize = 4096
+
+// KittyDeleteImage 删除固定 image id=7 的全部 placement 与数据：
+// 每次输出新图前重发（幂等）；从图片切到其他内容时由 tui 侧注入前缀——
+// kitty overlay 图形不随文本替换消失，必须显式删除。
+const KittyDeleteImage = "\x1b_Ga=d,d=a,i=7\x1b\\"
+
+// KittyDeleteAll 删除终端内全部 kitty 图形（程序退出时写 stdout，
+// 防 alt-screen 退出后 overlay 残留）。
+const KittyDeleteAll = "\x1b_Ga=d,d=a\x1b\\"
 
 var styleImgBox = lipgloss.NewStyle().
 	Border(lipgloss.Border{ // ASCII 边框：Unicode 制表符是歧义宽字符，见 tui/styles.go 说明
@@ -42,6 +52,10 @@ func renderImage(path string, cols, rows int, proto Protocol) (Rendered, error) 
 	if proto == ProtocolNone || proto == ProtocolAuto || cols <= 0 || rows <= 0 {
 		return Rendered{Kind: KindImage, Content: placeholderImage(info, proto), Lang: format}, nil
 	}
+	// halfblock 依赖终端色彩能力：无色输出（非 TTY / CI）时退回占位盒
+	if proto == ProtocolHalfblock && colorProfile() == termenv.Ascii {
+		return Rendered{Kind: KindImage, Content: placeholderImage(info, proto), Lang: format}, nil
+	}
 
 	cw, ch := cellSize()
 	var block string
@@ -50,6 +64,8 @@ func renderImage(path string, cols, rows int, proto Protocol) (Rendered, error) 
 		block, err = kittyBlock(img, cols, rows, cw, ch)
 	case ProtocolSixel:
 		block, err = sixelBlock(img, cols, rows, cw, ch)
+	case ProtocolHalfblock:
+		block, err = halfblockBlock(img, cols, rows)
 	}
 	if err != nil {
 		return Rendered{Kind: KindImage, Content: "图片渲染失败: " + err.Error()}, nil
@@ -58,12 +74,19 @@ func renderImage(path string, cols, rows int, proto Protocol) (Rendered, error) 
 }
 
 func placeholderImage(info string, proto Protocol) string {
+	why := "当前终端未检测到 kitty / sixel 图形协议（" + string(proto) + "）"
+	switch proto {
+	case ProtocolNone:
+		why = "图片渲染已通过 --img none 禁用"
+	case ProtocolHalfblock:
+		why = "当前输出无色彩能力，halfblock 渲染不可用"
+	}
 	lines := []string{
 		"🖼  " + info,
 		"",
-		"当前终端未检测到 kitty / sixel 图形协议（" + string(proto) + "）",
+		why,
 		"推荐在 kitty / ghostty / wezterm 中运行，",
-		"或通过 --img kitty / --img sixel 强制指定",
+		"或通过 --img kitty / sixel / halfblock 强制指定",
 	}
 	return styleImgBox.Render(strings.Join(lines, "\n"))
 }
@@ -84,8 +107,9 @@ func fitCells(imgW, imgH, cols, rows, cw, ch int) (c, r int) {
 }
 
 // kittyBlock 用 kitty 图形协议输出图片（整图 PNG base64，c/r 指定占位单元格数）。
-// 固定 i=7 让重复渲染复用同一 id，避免图像在终端内堆积。
-// 末尾补 r-1 个空行占位，使 viewport 行数与图像视觉行数一致。
+// 固定 i=7 让重复渲染复用同一 id，避免图像在终端内堆积；每次输出前先删除
+// 该 id 的旧 placement，覆盖「图片→图片」切换。末尾补 r-1 个空行占位，
+// 使 viewport 行数与图像视觉行数一致。
 func kittyBlock(img image.Image, cols, rows, cw, ch int) (string, error) {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
@@ -98,6 +122,7 @@ func kittyBlock(img image.Image, cols, rows, cw, ch int) (string, error) {
 	}
 	payload := base64.StdEncoding.EncodeToString(buf.Bytes())
 	var sb strings.Builder
+	sb.WriteString(KittyDeleteImage)
 	for off := 0; off < len(payload); off += kittyChunkSize {
 		end := min(off+kittyChunkSize, len(payload))
 		m := 1

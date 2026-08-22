@@ -30,12 +30,19 @@
 | 截断↔折行 | ⛔ 决策：保持默认折行不变，不引入 `--wrap` 类 CLI 参数（项目原则：尽量不加 CLI 参数，交互能力做进 TUI）；运行时切换如需做按键，归 M4 |
 | CJK 宽度验证 | ✅ 全角字符/全角字母/emoji 折行宽度 + 中文路径均有测试；reflow 与 lipgloss 计宽口径一致，无需换库 |
 
-## M3 图片预览完善（≈1–2 天，需真终端）
+## M3 图片预览完善（✅ 2026-08-22 代码完成；真机视觉验证见 README checklist）
 
-- **真机实测**：kitty / ghostty / wezterm 下跑 `testdata/demo.png`，验证 alt-screen 重绘、滚动、选中切换时图像是否残留/错位（嵌入 viewport 的方案最大的不确定性在此）
-- **halfblock 降级**：第三档渲染——纯文本半块字符 + truecolor（任何终端可用，参考 timg），作为 kitty/sixel 都不可用时的兜底，替代现在的纯文字占位
-- **DA1 精确探测**：发 `ESC[c` 查询 sixel 能力（raw mode + 超时读），替换环境变量启发式
-- **GIF 首帧**：当前 image.Decode 已能解，确认显示即可；动画播放列入 backlog 不做
+| 事项 | 状态 |
+| --- | --- |
+| 真机实测 | 🔶 代码侧防残留已内建并有测试：换图前删旧 placement、切走/清空注入删除序列、退出时清空全部 kitty 图形、图片预览禁滚动；kitty / ghostty / wezterm / sixel / halfblock 的视觉验证 checklist 收录在 README「真机实测 checklist（M3）」，待人工逐项确认 |
+| halfblock 降级 | ✅ 第三档渲染：`▀` 半块字符 + 前景/背景双色，每字符格承载上下两像素行；truecolor → 256 色 → 16 色自动降级（termenv），无色彩输出回退占位盒；同色像素 SGR 压缩。`auto` 探测不出 kitty/sixel 时默认走 halfblock，`--img halfblock` 可显式指定 |
+| DA1 精确探测 | ✅ `Detect()` 探测链：环境变量 kitty 系 → DA1 查询（`ESC[c`，raw mode + 150ms 超时读，属性 4 = sixel）→ TERM 启发式兜底 → halfblock；无 /dev/tty（管道/CI）零副作用跳过 |
+| GIF 首帧 | ✅ image.Decode 解首帧（有测试：两帧 GIF 还原 kitty payload 验证像素为首帧）；动画播放维持 backlog |
+
+附带决策与已知限制（详见 README）：
+- `▀` 是歧义宽字符，lipgloss/x/ansi 按 1 格计宽（有测试锁死该假设）；「歧义宽=2」终端（iTerm2 ambiguous double）中 halfblock 会错位，可 `--img none` 规避
+- SSH 场景环境变量不透传，本地 kitty 会被探测为 halfblock，可 `--img kitty` 强制
+- kitty overlay 与文本滚动的完全同步需独立渲染层，维持 backlog
 
 ## M4 交互与扩展（渐进）
 
@@ -62,6 +69,6 @@
 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
-| viewport 嵌图形序列在真终端的行为 | 图片功能可能需独立渲染层 | M3 最优先实测；备选方案 halfblock |
+| viewport 嵌图形序列在真终端的行为 | 图片功能可能需独立渲染层 | M3 已内建防残留机制（删除序列 + 禁滚动）+ halfblock 备选已落地；真机视觉验证待办（README checklist） |
 | 大文件高亮卡 UI（当前在 goroutine，但 1MB 上限仍慢） | 切选卡顿 | 预览缓存 + 上限调优 + 大文件只渲染可视区 |
 | bubbletea v2 正式发布 | API 迁移成本 | 锁 v1，升级列入 backlog |

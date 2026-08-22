@@ -29,7 +29,7 @@ func main() {
 	var (
 		pathFlag    = flag.String("path", ".", "搜索根目录；配合 --follow 可指向单个日志文件")
 		modeFlag    = flag.String("mode", "files", "初始模式: files | content")
-		imgFlag     = flag.String("img", "auto", "图片协议: auto | kitty | sixel | none")
+		imgFlag     = flag.String("img", "auto", "图片协议: auto | kitty | sixel | halfblock | none")
 		debounceMs  = flag.Int("debounce-ms", 200, "搜索防抖间隔（毫秒）")
 		titleFlag   = flag.String("title", "", "头部标题（如 docker:web）")
 		followFlag  = flag.Bool("follow", false, "跟随 -path 指定的单个日志文件，实时刷新（tail -f 式）")
@@ -118,7 +118,16 @@ func main() {
 	if err != nil {
 		die(err)
 	}
+	clearKittyGraphics(proto)
 	printPicked(final)
+}
+
+// clearKittyGraphics 退出前清空终端内全部 kitty 图形：alt-screen 退出后
+// overlay 图形默认保留，不清会在终端里残留到清屏。
+func clearKittyGraphics(proto preview.Protocol) {
+	if proto == preview.ProtocolKitty {
+		fmt.Fprint(os.Stdout, preview.KittyDeleteAll)
+	}
 }
 
 // runLogSource docker/k8s 子命令：默认持续跟随新日志（tail -f 式，

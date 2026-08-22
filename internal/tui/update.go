@@ -242,11 +242,15 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.followSelection()
 
 	case tea.KeyPgUp:
-		m.vp.LineUp(m.vp.Height / 2)
+		if !m.imagePreview() {
+			m.vp.LineUp(m.vp.Height / 2)
+		}
 		return m, nil
 
 	case tea.KeyPgDown:
-		m.vp.LineDown(m.vp.Height / 2)
+		if !m.imagePreview() {
+			m.vp.LineDown(m.vp.Height / 2)
+		}
 		return m, nil
 
 	default:

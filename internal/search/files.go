@@ -79,9 +79,12 @@ func ListFiles(ctx context.Context, root string) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "rg", "--files", ".")
 	cmd.Dir = root
 	raw, err := cmd.Output()
-	if err != nil {
+	if err != nil && len(raw) == 0 {
 		return nil, fmt.Errorf("rg --files 失败: %w", err)
 	}
+	// rg 退出码 2 表示遍历中遇到过错误（macOS 隐私保护目录报
+	// Operation not permitted 等）；stdout 已有的枚举结果仍然有效，
+	// 只有空输出才视为整体失败。
 	var files []string
 	for _, line := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
 		line = strings.TrimPrefix(line, "./")
