@@ -2,6 +2,14 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
+// borderASCII 宽度确定的 ASCII 边框。Unicode 制表符边框（╭─│╰╯）属于
+// East Asian Ambiguous 宽度字符，在中文环境「歧义宽按 2 格」的终端里会
+// 每格多占 1 列，导致整帧超宽、渲染器错位（界面鬼影），故全部改用 ASCII。
+var borderASCII = lipgloss.Border{
+	Top: "-", Bottom: "-", Left: "|", Right: "|",
+	TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+",
+}
+
 var (
 	colorAccent = lipgloss.Color("#7D56F4")
 	colorCyan   = lipgloss.Color("#56C9F4")
@@ -17,16 +25,16 @@ var (
 			Padding(0, 1)
 
 	styleInputBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(borderASCII).
 			BorderForeground(colorAccent).
 			Padding(0, 1)
 
 	styleBorderActive = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
+				Border(borderASCII).
 				BorderForeground(colorAccent)
 
 	styleBorderIdle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(borderASCII).
 			BorderForeground(lipgloss.Color("#3A3A4E"))
 
 	styleDim         = lipgloss.NewStyle().Foreground(colorDim)

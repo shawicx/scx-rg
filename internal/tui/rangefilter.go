@@ -280,19 +280,19 @@ func (m *Model) trimResultsCap() {
 }
 
 func (m *Model) rangeBarView() string {
-	rowDur := stylePanelTitle.Render("⏱ 时间")
+	rowDur := stylePanelTitle.Render("时间")
 	for i, p := range rangeDurPresets {
 		rowDur += " " + renderChip(p.label, m.rangeSeg == 0 && i == m.rangeSel[0], m.filterDur == p.d)
 	}
 	if !m.tsOK {
-		rowDur += styleDim.Render(" · 未检测到时间戳")
+		rowDur += styleDim.Render(" / 未检测到时间戳")
 	}
-	rowCap := stylePanelTitle.Render("⇥ 条数")
+	rowCap := stylePanelTitle.Render("条数")
 	for i, p := range rangeCapPresets {
 		rowCap += " " + renderChip(p.label, m.rangeSeg == 1 && i == m.rangeSel[1], m.filterCap == p.n)
 	}
-	return styleStatus.Width(m.width).Render(
-		ansiTruncate(" "+rowDur, m.width) + "\n" + ansiTruncate(" "+rowCap, m.width))
+	return styleStatus.Width(m.frameW()).Render(
+		ansiTruncate(" "+rowDur, m.frameW()) + "\n" + ansiTruncate(" "+rowCap, m.frameW()))
 }
 
 func renderChip(label string, cursor, active bool) string {
@@ -310,10 +310,10 @@ func renderChip(label string, cursor, active bool) string {
 func (m *Model) filterStatus() string {
 	var s string
 	if m.filterDur > 0 && m.tsOK {
-		s += " · ⏱ " + durLabel(m.filterDur)
+		s += " / " + durLabel(m.filterDur)
 	}
 	if m.filterCap > 0 {
-		s += " · 末" + rangeCapLabel(m.filterCap)
+		s += " / 末" + rangeCapLabel(m.filterCap)
 	}
 	return s
 }

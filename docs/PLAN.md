@@ -20,13 +20,15 @@
 | 内容模式流式渲染 | ✅ `SearchStream` + channel，`waitForResult` 消息链逐条送达，首条到达即跟随预览 |
 | walk 模式 ignore 规则 | ✅ `rg --files` 枚举（git 仓库内尊重 .gitignore；非 git 目录回退内置遍历） |
 
-## M2 预览增强（≈1 天）
+## M2 预览增强（✅ 2026-08-22 完成）
 
-- **预览缓存**：`(path, width)` 为键的 LRU；当前每次切选都重读+重高亮，resize 全量重渲
-- **预览内命中词高亮**：列表已高亮，预览面板里命中行只有行号变色，词本身没标
-- **多行 token ANSI 泄漏**：整文件 tokenize 后按行 split，跨行字符串/注释的颜色会漏到下一行；改用 chroma 按 token 边界正确分行
-- **截断↔折行**：默认截断（保行号 1:1），加 `--wrap` 折行模式
-- **CJK 宽度验证**：reflow truncate 对全角字符的宽度计算需用中文路径/内容实测
+| 事项 | 状态 |
+| --- | --- |
+| 预览缓存 | ✅ LRU（容量 32），key 覆盖 `path/cols/rows/jump/proto/query/size/mtime`；回访同步应用，文件增长/resize 自然失效 |
+| 预览内命中词高亮 | ✅ 内容模式把搜索词传入 preview，ANSI 感知忽略大小写高亮（青色+下划线，命中后重开原语法色） |
+| 多行 token ANSI 泄漏 | ✅ chroma 按 token 边界拆行、逐行独立 Format，每行自带 SGR，续行不再丢色/串色 |
+| 截断↔折行 | ⛔ 决策：保持默认折行不变，不引入 `--wrap` 类 CLI 参数（项目原则：尽量不加 CLI 参数，交互能力做进 TUI）；运行时切换如需做按键，归 M4 |
+| CJK 宽度验证 | ✅ 全角字符/全角字母/emoji 折行宽度 + 中文路径均有测试；reflow 与 lipgloss 计宽口径一致，无需换库 |
 
 ## M3 图片预览完善（≈1–2 天，需真终端）
 

@@ -24,7 +24,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.width-m.listW < 30 {
 			m.listW = max(0, m.width-30)
 		}
-		m.prevW = max(0, m.width-m.listW)
+		m.prevW = max(0, m.frameW()-m.listW)
 		m.input.Width = max(10, m.width-16)
 
 		vpW := max(0, m.prevW-2)
@@ -150,29 +150,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case previewMsg:
-		if msg.path != m.prevPath {
-			return m, nil // 用户已切走，丢弃
-		}
-		m.prevLoading = false
-		if msg.err != nil {
-			m.vp.SetContent(styleErrText.Render("预览失败: " + msg.err.Error()))
-			return m, nil
-		}
-		ren := msg.rendered
-		m.vp.SetContent(ren.Content)
-		m.prevLines = strings.Count(ren.Content, "\n") + 1
-		m.prevKind = string(ren.Kind)
-		m.prevLang = ren.Lang
-		// 窗口化渲染时真实行号≠物理行号，滚动必须按物理位置定位
-		offset := ren.JumpOffset
-		if offset <= 0 {
-			offset = ren.JumpLine
-		}
-		if offset > 0 {
-			m.scrollToJump(offset, m.prevLines)
-		} else {
-			m.vp.GotoTop()
-		}
+		m.applyPreview(msg.path, msg.rendered, msg.err)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -276,11 +254,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) updatePlaceholder() {
 	if m.mode == ModeContent {
 		if m.cfg.RgAvailable {
-			m.input.Placeholder = "输入关键词，rg 全文搜索…"
+			m.input.Placeholder = "输入关键词，rg 全文搜索..."
 		} else {
 			m.input.Placeholder = "内容模式需要安装 ripgrep"
 		}
 	} else {
-		m.input.Placeholder = "输入关键词，实时搜索…"
+		m.input.Placeholder = "输入关键词，实时搜索..."
 	}
 }

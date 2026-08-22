@@ -12,7 +12,7 @@ import (
 // View 自上而下：搜索框 → [筛选栏] → [结果列表 | 预览面板] → 状态栏。
 func (m *Model) View() string {
 	if m.width < 60 || m.height < 12 {
-		return styleDim.Render("终端太小啦，至少需要 60×12")
+		return styleDim.Render("终端太小啦，至少需要 60x12")
 	}
 	parts := []string{m.headerView()}
 	if m.rangeBar {
@@ -37,8 +37,8 @@ func (m *Model) headerView() string {
 		name = " " + m.cfg.Title + " "
 	}
 	inner := styleAppTitle.Render(name) + " " + m.input.View()
-	inner = ansiTruncate(inner, m.width-4)
-	return styleInputBox.Width(m.width - 2).Render(inner)
+	inner = ansiTruncate(inner, m.frameW()-4)
+	return styleInputBox.Width(m.frameW() - 2).Render(inner)
 }
 
 func (m *Model) listView() string {
@@ -53,7 +53,7 @@ func (m *Model) listView() string {
 		hint := "没有匹配结果"
 		switch {
 		case m.searching:
-			hint = "搜索中…"
+			hint = "搜索中..."
 		case m.searchErr != nil:
 			hint = "错误: " + m.searchErr.Error()
 		case m.mode == ModeContent && m.input.Value() == "":
@@ -61,7 +61,7 @@ func (m *Model) listView() string {
 		case m.fallbackActive:
 			hint = "文件名与全文均无匹配"
 		case m.mode == ModeFiles && m.input.Value() != "":
-			hint = "文件名无匹配 · Tab 切内容模式搜全文"
+			hint = "文件名无匹配 / Tab 切内容模式搜全文"
 		}
 		rows = append(rows, centerLine(hint, w, stylePlaceholder))
 	} else {
@@ -86,7 +86,7 @@ func (m *Model) resultRow(i, w int) string {
 	r := m.results[i]
 	marker := "  "
 	if i == m.sel {
-		marker = styleRowMarker.Render("❯ ")
+		marker = styleRowMarker.Render("> ")
 	}
 	var body string
 	if m.mode == ModeFiles && !m.fallbackActive {
@@ -150,14 +150,14 @@ func (m *Model) previewView() string {
 	}
 	switch {
 	case m.prevLoading:
-		body = stylePlaceholder.Render("加载预览…")
+		body = stylePlaceholder.Render("加载预览...")
 	case m.prevPath == "":
 		body = stylePlaceholder.Render("选中左侧结果后在此预览")
 	}
 	if m.prevPath != "" {
 		title += " " + styleDim.Render(m.prevPath)
 		if m.prevLang != "" {
-			title += styleDim.Render(" · " + m.prevLang)
+			title += styleDim.Render(" / " + m.prevLang)
 		}
 	}
 	inner := title + "\n" + body
@@ -168,20 +168,20 @@ func (m *Model) statusView() string {
 	if m.picking {
 		left := styleBadgeFiles.Render("选择 " + pickerKindLabel(m.pickerKind))
 		if m.pickLoading {
-			left += " " + styleSearching.Render("⟳ 抓取日志中…")
+			left += " " + styleSearching.Render("* 抓取日志中...")
 		} else if m.listLoading {
-			left += " " + styleSearching.Render("⟳ 加载列表")
+			left += " " + styleSearching.Render("* 加载列表")
 		}
 		left += fmt.Sprintf(" %d 项", len(m.pickerView))
 		if m.searchErr != nil {
-			left += " · " + styleErrText.Render(m.searchErr.Error())
+			left += " / " + styleErrText.Render(m.searchErr.Error())
 		}
-		right := "↑↓ 选择 · 输入过滤 · Ctrl+R 刷新 · Enter 抓取并检索 · Esc 退出"
-		pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+		right := "上下选择 / 输入过滤 / Ctrl+R 刷新 / Enter 抓取并检索 / Esc 退出"
+		pad := m.frameW() - lipgloss.Width(left) - lipgloss.Width(right)
 		if pad > 0 {
 			left += strings.Repeat(" ", pad)
 		}
-		return styleStatus.Width(m.width).Render(left + right)
+		return styleStatus.Width(m.frameW()).Render(left + right)
 	}
 	var badge string
 	if m.mode == ModeFiles {
@@ -191,23 +191,23 @@ func (m *Model) statusView() string {
 	}
 	left := badge + " "
 	if m.searching {
-		left += styleSearching.Render("⟳ 搜索中") + " · "
+		left += styleSearching.Render("* 搜索中") + " / "
 	}
 	left += fmt.Sprintf("%d 项", len(m.results))
 	left += m.filterStatus()
 	left += m.followStatus()
 	if m.notice != "" {
-		left += " · " + styleMatch.Render(m.notice)
+		left += " / " + styleMatch.Render(m.notice)
 	}
 	if m.searchErr != nil {
-		left += " · " + styleErrText.Render(m.searchErr.Error())
+		left += " / " + styleErrText.Render(m.searchErr.Error())
 	}
-	right := "Ctrl+O 翻页复制 · Ctrl+Y 复制行 · Ctrl+T 筛选 · Enter 选定 · Esc 清空"
-	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	right := "Ctrl+O 翻页复制 / Ctrl+Y 复制行 / Ctrl+T 筛选 / Enter 选定 / Esc 清空"
+	pad := m.frameW() - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad > 0 {
 		left += strings.Repeat(" ", pad)
 	}
-	return styleStatus.Width(m.width).Render(left + right)
+	return styleStatus.Width(m.frameW()).Render(left + right)
 }
 
 // highlightMatch 把 s 中出现的 q（忽略大小写）高亮成青色加粗。

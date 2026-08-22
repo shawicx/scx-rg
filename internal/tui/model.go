@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/cursor"
@@ -117,6 +118,9 @@ type Model struct {
 	prevKind    string
 	prevLang    string
 	prevLoading bool
+	// 预览渲染缓存（切选回访免重渲）与可注入渲染函数（默认 preview.Render，测试可换 fake 计数）
+	prevCache  *preview.Cache
+	renderFile func(path string, cols, rows int, proto preview.Protocol, jump int, query string) (preview.Rendered, error)
 
 	// 跟随模式状态
 	followSize int64  // 上次观测到的快照文件大小
@@ -160,13 +164,15 @@ func New(cfg Config) *Model {
 		cfg.Debounce = 200 * time.Millisecond
 	}
 	ti := textinput.New()
-	ti.Prompt = "❯ "
-	ti.Placeholder = "输入关键词，实时搜索…"
+	ti.Prompt = "> "
+	ti.Placeholder = "输入关键词，实时搜索..."
 	ti.CharLimit = 256
 	ti.PromptStyle = stylePrompt
 	ti.Focus()
 
 	m := &Model{cfg: cfg, root: cfg.Root, mode: cfg.Mode, input: ti}
+	m.prevCache = preview.NewCache(32)
+	m.renderFile = preview.Render
 	if m.mode == ModeContent && !cfg.RgAvailable && cfg.PickerKind == "" {
 		m.mode = ModeFiles
 	}
@@ -182,7 +188,7 @@ func New(cfg Config) *Model {
 		m.followPick = cfg.FollowPick
 		m.listLoading = true
 		m.mode = ModeContent
-		ti.Placeholder = "输入名称过滤，实时匹配…"
+		ti.Placeholder = "输入名称过滤，实时匹配..."
 	}
 	return m
 }
@@ -317,6 +323,12 @@ func (m *Model) panelH() int {
 	}
 	return max(0, h)
 }
+
+// frameW 帧的最大宽度：比终端少 1 列。帧行若恰好占满终端宽度，行尾会压在
+// 最后一列（wrap-pending 边界），部分终端引擎（如 Termius 的本地终端）在
+// 高频局部重绘下对该边界的处理有缺陷，会造成错位鬼影；收窄 1 列后行尾不再
+// 触碰最后一列，且每行会附带「清除行尾」序列，重绘变为自清洁。
+func (m *Model) frameW() int      { return max(0, m.width-1) }
 func (m *Model) listVisible() int { return max(0, m.panelH()-3) }
 
 func (m *Model) adjustOffset() {
@@ -331,6 +343,7 @@ func (m *Model) adjustOffset() {
 }
 
 // followSelection 让预览跟随当前选中项；同文件不同行只做跳转，不重新渲染。
+// 先查渲染缓存，命中则同步应用；未命中异步渲染并在成功后写回缓存。
 func (m *Model) followSelection() tea.Cmd {
 	if len(m.results) == 0 || m.sel >= len(m.results) {
 		m.vp.SetContent("")
@@ -350,9 +363,48 @@ func (m *Model) followSelection() tea.Cmd {
 	proto := m.cfg.ImgProto
 	jump := r.Line
 	abs := filepath.Join(m.root, r.Path)
+	query := ""
+	if m.cfg.Mode == ModeContent {
+		query = m.input.Value() // 内容模式：预览正文内高亮命中词
+	}
+	if ren, ok := m.prevCache.Get(abs, cols, rows, proto, jump, query); ok {
+		m.applyPreview(r.Path, ren, nil)
+		return nil
+	}
+	render := m.renderFile // goroutine 只捕获局部变量，避免读 m 产生竞态
+	cache := m.prevCache
 	return func() tea.Msg {
-		ren, err := preview.Render(abs, cols, rows, proto, jump)
+		ren, err := render(abs, cols, rows, proto, jump, query)
+		if err == nil {
+			cache.Put(abs, cols, rows, proto, jump, query, ren)
+		}
 		return previewMsg{path: r.Path, rendered: ren, err: err}
+	}
+}
+
+// applyPreview 应用一份预览渲染结果（异步 previewMsg 与缓存命中共用）。
+func (m *Model) applyPreview(path string, ren preview.Rendered, err error) {
+	if path != m.prevPath {
+		return // 用户已切走，丢弃
+	}
+	m.prevLoading = false
+	if err != nil {
+		m.vp.SetContent(styleErrText.Render("预览失败: " + err.Error()))
+		return
+	}
+	m.vp.SetContent(ren.Content)
+	m.prevLines = strings.Count(ren.Content, "\n") + 1
+	m.prevKind = string(ren.Kind)
+	m.prevLang = ren.Lang
+	// 窗口化渲染时真实行号≠物理行号，滚动必须按物理位置定位
+	offset := ren.JumpOffset
+	if offset <= 0 {
+		offset = ren.JumpLine
+	}
+	if offset > 0 {
+		m.scrollToJump(offset, m.prevLines)
+	} else {
+		m.vp.GotoTop()
 	}
 }
 

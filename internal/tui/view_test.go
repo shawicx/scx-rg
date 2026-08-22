@@ -45,7 +45,7 @@ func TestWindowedPreviewScrollsToPhysicalOffset(t *testing.T) {
 
 	m := New(Config{Root: filepath.Dir(big), ImgProto: preview.ProtocolNone})
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	ren, err := preview.Render(big, m.prevW-2, m.panelH()-3, preview.ProtocolNone, 2500)
+	ren, err := preview.Render(big, m.prevW-2, m.panelH()-3, preview.ProtocolNone, 2500, "")
 	if err != nil {
 		t.Fatal(err)
 	}

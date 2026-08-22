@@ -82,10 +82,10 @@ func (m *Model) followStatus() string {
 	size := m.followSize
 	switch {
 	case size >= 1<<20:
-		return " · ⟳ 跟随 " + strconv.FormatFloat(float64(size)/(1<<20), 'f', 1, 64) + "MB"
+		return " / * 跟随 " + strconv.FormatFloat(float64(size)/(1<<20), 'f', 1, 64) + "MB"
 	case size >= 1<<10:
-		return " · ⟳ 跟随 " + strconv.Itoa(int(size>>10)) + "KB"
+		return " / * 跟随 " + strconv.Itoa(int(size>>10)) + "KB"
 	default:
-		return " · ⟳ 跟随"
+		return " / * 跟随"
 	}
 }

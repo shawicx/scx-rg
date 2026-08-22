@@ -254,7 +254,7 @@ func (m *Model) pickerPreview() {
 		b.WriteString("状态  " + pickerStatusStyle(s.Status).Render(s.Status) + "\n")
 	}
 	b.WriteString("\n" + styleDim.Render("Enter 抓取最近日志并检索") + "\n")
-	b.WriteString(styleDim.Render("输入关键词过滤 · Ctrl+R 刷新 · Esc 退出") + "\n")
+	b.WriteString(styleDim.Render("输入关键词过滤 / Ctrl+R 刷新 / Esc 退出") + "\n")
 	m.vp.SetContent(b.String())
 	m.prevPath = "" // 选择器阶段不占用预览缓存
 }
@@ -263,7 +263,7 @@ func kindLine(t logs.Target) string {
 	if t.Kind == "kubectl" {
 		line := "类型  Pod"
 		if t.Namespace != "" {
-			line += " · ns=" + t.Namespace
+			line += " / ns=" + t.Namespace
 		}
 		return line
 	}
@@ -285,7 +285,7 @@ func (m *Model) pickerListView() string {
 	var rows []string
 	switch {
 	case m.listLoading:
-		rows = append(rows, centerLine("加载列表…", w, stylePlaceholder))
+		rows = append(rows, centerLine("加载列表...", w, stylePlaceholder))
 	case m.searchErr != nil:
 		rows = append(rows, centerLine("错误: "+m.searchErr.Error(), w, styleErrText))
 	case len(m.pickerView) == 0:
@@ -305,7 +305,7 @@ func (m *Model) pickerListView() string {
 
 	title := stylePanelTitle.Render(pickerKindLabel(m.pickerKind) + " 目标")
 	if m.pickLoading {
-		title += " " + styleSearching.Render("⟳ 抓取中")
+		title += " " + styleSearching.Render("* 抓取中")
 	}
 	title += styleDim.Render(fmt.Sprintf("  %d/%d", min(m.sel+1, len(m.pickerView)), len(m.pickerView)))
 	body := title + "\n" + strings.Join(rows, "\n")
@@ -316,7 +316,7 @@ func (m *Model) pickerRow(i, w int) string {
 	s := m.pickerView[i]
 	marker := "  "
 	if i == m.sel {
-		marker = styleRowMarker.Render("❯ ")
+		marker = styleRowMarker.Render("> ")
 	}
 	name := highlightMatch(s.Target.Name, m.input.Value())
 	detail := styleDim.Render(s.Detail)

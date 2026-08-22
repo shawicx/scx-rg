@@ -18,7 +18,10 @@ import (
 const kittyChunkSize = 4096
 
 var styleImgBox = lipgloss.NewStyle().
-	Border(lipgloss.RoundedBorder()).
+	Border(lipgloss.Border{ // ASCII 边框：Unicode 制表符是歧义宽字符，见 tui/styles.go 说明
+		Top: "-", Bottom: "-", Left: "|", Right: "|",
+		TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+",
+	}).
 	BorderForeground(lipgloss.Color("#626262")).
 	Padding(1, 2).
 	Foreground(lipgloss.Color("#626262"))
@@ -33,7 +36,7 @@ func renderImage(path string, cols, rows int, proto Protocol) (Rendered, error) 
 	if err != nil {
 		return Rendered{Kind: KindMissing, Content: "图片解码失败: " + err.Error()}, nil
 	}
-	info := fmt.Sprintf("%s · %s · %d×%dpx",
+	info := fmt.Sprintf("%s / %s / %dx%dpx",
 		filepath.Base(path), format, img.Bounds().Dx(), img.Bounds().Dy())
 
 	if proto == ProtocolNone || proto == ProtocolAuto || cols <= 0 || rows <= 0 {
