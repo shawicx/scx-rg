@@ -200,6 +200,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlT:
 		return m, m.toggleRangeBar()
 
+	case tea.KeyCtrlF:
+		// 匹配行为切换：文件模式=精确(子串)/模糊；内容与全文回退=字面量(-F)/正则
+		if m.mode == ModeContent || m.fallbackActive {
+			m.matchLiteral = !m.matchLiteral
+		} else {
+			m.matchExact = !m.matchExact
+		}
+		m.version++
+		m.followKeep = ""
+		return m, m.runSearch()
+
 	case tea.KeyCtrlO:
 		return m, m.openInPager()
 

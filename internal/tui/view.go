@@ -184,10 +184,17 @@ func (m *Model) statusView() string {
 		return styleStatus.Width(m.frameW()).Render(left + right)
 	}
 	var badge string
+	literalOn := m.matchLiteral && (m.mode == ModeContent || m.fallbackActive)
 	if m.mode == ModeFiles {
 		badge = styleBadgeFiles.Render("文件")
+		if m.matchExact && !m.fallbackActive {
+			badge += " " + styleBadgeContent.Render("精确")
+		}
 	} else {
 		badge = styleBadgeContent.Render("内容")
+	}
+	if literalOn {
+		badge += " " + styleBadgeContent.Render("字面")
 	}
 	left := badge + " "
 	if m.searching {
@@ -202,7 +209,7 @@ func (m *Model) statusView() string {
 	if m.searchErr != nil {
 		left += " / " + styleErrText.Render(m.searchErr.Error())
 	}
-	right := "Ctrl+O 翻页复制 / Ctrl+Y 复制行 / Ctrl+T 筛选 / Enter 选定 / Esc 清空"
+	right := "Ctrl+O 翻页复制 / Ctrl+Y 复制行 / Ctrl+T 筛选 / Ctrl+F 匹配 / Enter 选定 / Esc 清空"
 	pad := m.frameW() - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad > 0 {
 		left += strings.Repeat(" ", pad)

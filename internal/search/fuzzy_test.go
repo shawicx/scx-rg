@@ -100,3 +100,63 @@ func TestFuzzyPositionsSortedAcrossTerms(t *testing.T) {
 		}
 	}
 }
+
+// 截图案例：目录名字符拼凑出的散落匹配——分层评分后必须远低于真命中，
+// 且被标记为 Scattered 供调用方过滤。
+func TestFuzzySubstringHitOutranksScattered(t *testing.T) {
+	real := Fuzzy("clear", "scripts/clear.sh")
+	junk := Fuzzy("clear", "alibabacloud/hbrclient/c/job-0000418crpa026lfsifr_0.csv")
+	if !real.Matched || !junk.Matched {
+		t.Fatalf("两者都是子序列，均应命中: real=%v junk=%v", real.Matched, junk.Matched)
+	}
+	if !junk.Scattered {
+		t.Fatal("散落拼凑的匹配应标记 Scattered")
+	}
+	if real.Scattered {
+		t.Fatal("完整子串命中不应标记 Scattered")
+	}
+	if real.Score <= junk.Score {
+		t.Fatalf("子串命中 (%d) 应远高于散落匹配 (%d)", real.Score, junk.Score)
+	}
+}
+
+func TestFuzzyScatteredSparesAcronymAndCompact(t *testing.T) {
+	// 全部命中在边界（缩写式）不算散落拼凑，即使跨度大
+	m := Fuzzy("mgl", "my-great-list.go")
+	if !m.Matched || m.Scattered {
+		t.Fatalf("边界缩写匹配不应标记 Scattered: %+v", m)
+	}
+	// 紧凑的普通子序列不算散落拼凑
+	m = Fuzzy("grt", "my-great-model.go")
+	if !m.Matched || m.Scattered {
+		t.Fatalf("紧凑命中不应标记 Scattered: %+v", m)
+	}
+}
+
+func TestExactMatchRequiresSubstring(t *testing.T) {
+	if ExactMatch("clear", "alibabacloud/hbrclient/c/job-0000418crpa026lfsifr_0.csv").Matched {
+		t.Fatal("精确模式要求完整子串，散落子序列不应命中")
+	}
+	m := ExactMatch("CLEAR", "scripts/clear.sh")
+	if !m.Matched {
+		t.Fatal("子串命中应忽略大小写")
+	}
+	if ExactMatch("clear zz", "scripts/clear.sh").Matched {
+		t.Fatal("分词 AND：任一词非子串则不命中")
+	}
+}
+
+func TestExactMatchHighlightsAllOccurrences(t *testing.T) {
+	m := ExactMatch("go", "go.go")
+	if !m.Matched {
+		t.Fatal("go 应命中 go.go")
+	}
+	want := []int{0, 1, 3, 4} // 两处出现的全部字符
+	if !reflect.DeepEqual(m.Positions, want) {
+		t.Fatalf("精确模式应高亮全部出现位置: %v, 期望 %v", m.Positions, want)
+	}
+	// 文件名内的命中应比目录名内命中的候选加分
+	if ExactMatch("go", "go/a.txt").Score >= ExactMatch("go", "dir/a.go").Score {
+		t.Fatal("命中在文件名内应排在目录名命中之前")
+	}
+}

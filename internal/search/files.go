@@ -11,10 +11,15 @@ import (
 	"strings"
 )
 
-// FilesProvider 文件名模糊搜索。
+// FilesProvider 文件名搜索。
 // UseRg 为 true 时用 rg --files 枚举（尊重 .gitignore / 排除隐藏文件），
 // 否则回退到内置目录遍历（跳过常见依赖/构建目录）。
-type FilesProvider struct{ UseRg bool }
+// Exact 为 true 时要求分词以完整子串形式命中（Ctrl+F 切换），否则用模糊
+// 子序列匹配；模糊模式下散落拼凑的低质量匹配会被过滤（宁缺毋滥）。
+type FilesProvider struct {
+	UseRg bool
+	Exact bool
+}
 
 func (FilesProvider) Name() string { return "files" }
 
@@ -37,8 +42,13 @@ func (p FilesProvider) Search(ctx context.Context, root, query string) ([]Result
 	needSort := strings.Fields(query) != nil
 	var out []scored
 	for _, rel := range candidates {
-		m := Fuzzy(query, rel)
-		if !m.Matched {
+		var m FuzzyMatch
+		if p.Exact {
+			m = ExactMatch(query, rel)
+		} else {
+			m = Fuzzy(query, rel)
+		}
+		if !m.Matched || m.Scattered {
 			continue
 		}
 		out = append(out, scored{r: Result{Path: rel, Hits: m.Positions}, score: m.Score})

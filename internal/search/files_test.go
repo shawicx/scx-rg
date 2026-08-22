@@ -124,3 +124,48 @@ func TestFilesProviderRgEnumerationSameBehavior(t *testing.T) {
 		t.Fatalf("rg 枚举 + 模糊过滤 = %v, 期望 %v", paths(rs), want)
 	}
 }
+
+func TestFilesProviderFiltersScatteredJunk(t *testing.T) {
+	// 用户实测案例：搜 clear，目录字母拼凑出的远距离散匹配应被过滤
+	dir := writeTree(t, map[string]string{
+		"scripts/clear.sh": "",
+		"alibabacloud/hbrclient/c/job-0000418crpa026lfsifr_0.csv": "",
+	}, false)
+	rs, err := FilesProvider{UseRg: false}.Search(context.Background(), dir, "clear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := paths(rs)
+	if !reflect.DeepEqual(got, []string{"scripts/clear.sh"}) {
+		t.Fatalf("散落拼凑应被过滤，结果 = %v", got)
+	}
+}
+
+func TestFilesProviderExactMode(t *testing.T) {
+	dir := writeTree(t, map[string]string{
+		"scripts/clear.sh":  "",
+		"my-great-model.go": "",
+		"great.txt":         "",
+		"agrtz.log":         "",
+		"alibabacloud/hbrclient/c/job-0000418crpa026lfsifr_0.csv": "",
+	}, false)
+	ctx := context.Background()
+
+	// 模糊：紧凑子序列均命中
+	fuzzy, err := FilesProvider{UseRg: false}.Search(ctx, dir, "grt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := paths(fuzzy); len(got) != 3 { // my-great-model.go / great.txt / agrtz.log
+		t.Fatalf("模糊模式应命中 3 个紧凑匹配，得到 %v", got)
+	}
+
+	// 精确：只有完整子串
+	exact, err := FilesProvider{UseRg: false, Exact: true}.Search(ctx, dir, "grt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := paths(exact); !reflect.DeepEqual(got, []string{"agrtz.log"}) {
+		t.Fatalf("精确模式只应保留子串命中，得到 %v", got)
+	}
+}

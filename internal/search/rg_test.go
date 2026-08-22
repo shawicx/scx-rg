@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -158,5 +159,56 @@ func TestSearchStreamStreamsAllMatches(t *testing.T) {
 	// 生产者不再截断：截多少由消费者决定（日志模式要保留最新窗口）
 	if n != 600 {
 		t.Fatalf("流式结果数 = %d, 期望 600（不截断）", n)
+	}
+}
+
+func TestSearchStreamLiteralFixedStrings(t *testing.T) {
+	if !RgAvailable() {
+		t.Skip("rg 未安装")
+	}
+	dir := writeTree(t, map[string]string{"a.log": "boom log.error( here\nplain line\n"}, false)
+
+	// 正则模式：未闭合括号 → 报错，且错误信息不重复 rg: 前缀
+	ch, err := (RipgrepProvider{}).SearchStream(context.Background(), dir, "log.error(")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotErr error
+	for r := range ch {
+		if r.Err != nil {
+			gotErr = r.Err
+		}
+	}
+	if gotErr == nil {
+		t.Fatal("正则模式下未闭合括号应报错")
+	}
+	if msg := gotErr.Error(); !strings.Contains(msg, "regex parse error") || strings.Contains(msg, "rg: rg:") {
+		t.Fatalf("错误信息应含 regex parse error 且无重复前缀: %q", msg)
+	}
+
+	// 字面量模式：作为固定字符串精确命中该行
+	ch2, err := (RipgrepProvider{Literal: true}).SearchStream(context.Background(), dir, "log.error(")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var texts []string
+	for r := range ch2 {
+		if r.Err != nil {
+			t.Fatalf("字面量模式不应报错: %v", r.Err)
+		}
+		texts = append(texts, r.Text)
+	}
+	if len(texts) != 1 || texts[0] != "boom log.error( here" {
+		t.Fatalf("字面量模式应只命中该行，得到 %v", texts)
+	}
+}
+
+func TestRgErrMessage(t *testing.T) {
+	stderr := "rg: regex parse error:\n    log.error(\n             ^\nerror: unclosed group\n"
+	if got, want := rgErrMessage(stderr), "regex parse error: unclosed group"; got != want {
+		t.Fatalf("rgErrMessage = %q, 期望 %q", got, want)
+	}
+	if got := rgErrMessage(""); got != "" {
+		t.Fatalf("空 stderr 应返回空: %q", got)
 	}
 }

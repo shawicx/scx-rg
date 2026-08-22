@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -97,6 +98,10 @@ type Model struct {
 	mode    Mode
 	input   textinput.Model
 	version uint64 // 查询版本号，防抖与过期结果的判废依据
+	// matchExact 文件模式的精确/模糊匹配切换（Ctrl+F）：精确=分词须为完整子串
+	matchExact bool
+	// matchLiteral 内容/全文回退模式的字面量/正则切换（Ctrl+F）：字面量=rg -F
+	matchLiteral bool
 
 	results   []search.Result
 	sel       int
@@ -225,7 +230,7 @@ func (m *Model) provider() search.Provider {
 		}
 		return nil
 	}
-	return search.FilesProvider{UseRg: m.cfg.RgAvailable}
+	return search.FilesProvider{UseRg: m.cfg.RgAvailable, Exact: m.matchExact}
 }
 
 // runSearch 基于当前查询发起搜索：先取消上一轮（流式会立刻杀掉 rg 进程），
@@ -274,9 +279,18 @@ func (m *Model) runSearch() tea.Cmd {
 
 // startStreamSearch 发起内容流式搜索（runSearch 与文件名回退共用）。
 // 沿用当前 version，不重置列表；调用前须已取消旧搜索。
+// 查询不是合法正则时自动按字面量兜底——用户搜 log.error( 这类含元字符的
+// 文本不该先撞一个 regex parse error 再手动切换。
 func (m *Model) startStreamSearch() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := (search.RipgrepProvider{}).SearchStream(ctx, m.root, m.input.Value())
+	literal := m.matchLiteral
+	if !literal {
+		if _, err := regexp.Compile(m.input.Value()); err != nil {
+			literal = true
+			m.notice = "非合法正则，已按字面量搜索"
+		}
+	}
+	ch, err := (search.RipgrepProvider{Literal: literal}).SearchStream(ctx, m.root, m.input.Value())
 	if err != nil {
 		cancel()
 		m.searching = false
