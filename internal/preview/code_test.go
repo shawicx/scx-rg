@@ -51,6 +51,32 @@ func TestRenderCodeWrapsLongLines(t *testing.T) {
 	}
 }
 
+// 超长单行（压缩 JSON 一行撑爆 viewport 的场景）按 maxWrapSegments 截断：
+// 不无限折行，超出部分以 ... 收尾。
+func TestRenderCodeCapsWrapSegments(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "fat.json")
+	// 5000 字符 × 宽 60 ≈ 84 段，远超 maxWrapSegments=10
+	if err := os.WriteFile(p, []byte(`{"blob":"`+strings.Repeat("z", 5000)+`"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ren, err := Render(p, 60, 20, ProtocolNone, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	phys := strings.Split(ren.Content, "\n")
+	if len(phys) > 12 { // 1 源行 → 折行段被限制在 10 段内（末段以 ... 收尾）
+		t.Fatalf("超长单行物理行数 %d 应被限制在 12 以内:\n%q", len(phys), ren.Content)
+	}
+	if !strings.Contains(ren.Content, "...") {
+		t.Errorf("截断处应有 ... 省略标记:\n%q", ren.Content)
+	}
+	for i, l := range phys {
+		if w := lipgloss.Width(l); w > 60 {
+			t.Errorf("物理行 %d 宽度 %d 超过面板宽度 60", i+1, w)
+		}
+	}
+}
+
 func TestRenderCodeLargeFileWindowAroundJump(t *testing.T) {
 	p := bigLogFile(t, 3000) // ~1.8MB
 	ren, err := Render(p, 100, 40, ProtocolNone, 2500, "")

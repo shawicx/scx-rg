@@ -97,6 +97,24 @@ func TestListFilesToleratesUnreadableSubdir(t *testing.T) {
 	}
 }
 
+// TestWalkFilesSkipsHiddenDirsAndFiles 锁定 walk 兜底的「. 前缀即隐藏」规则
+// （独立于 skipDirs 名单：.hidden 不在名单内也应跳过）。
+func TestWalkFilesSkipsHiddenDirsAndFiles(t *testing.T) {
+	dir := writeTree(t, map[string]string{
+		"keep.txt":            "",
+		".hidden/secret.txt":  "",
+		".env":                "",
+		"sub/.dot-inside.txt": "",
+	}, false)
+	rs, err := FilesProvider{UseRg: false}.Search(context.Background(), dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"keep.txt"}; !reflect.DeepEqual(paths(rs), want) {
+		t.Fatalf("枚举 = %v, 期望 %v（隐藏目录/文件应全部跳过，含子目录内）", paths(rs), want)
+	}
+}
+
 func TestFilesProviderFuzzyOrdersByScore(t *testing.T) {
 	dir := writeTree(t, map[string]string{
 		"main.go":           "",

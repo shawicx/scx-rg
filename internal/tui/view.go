@@ -191,6 +191,22 @@ func (m *Model) previewView() string {
 	return styleBorderIdle.Width(m.prevW - 2).Render(inner)
 }
 
+// statusLine 拼状态栏单行：左侧超宽先截左，右侧提示超宽截右，
+// 保证状态栏恒 1 行（帧高不变式，见 frame_width_test）。
+func (m *Model) statusLine(left, right string) string {
+	if lw := lipgloss.Width(left); lw > m.frameW() {
+		left = ansiTruncate(left, m.frameW())
+	}
+	avail := m.frameW() - lipgloss.Width(left)
+	if rw := lipgloss.Width(right); rw > avail {
+		right = ansiTruncate(right, max(0, avail))
+	}
+	if pad := m.frameW() - lipgloss.Width(left) - lipgloss.Width(right); pad > 0 {
+		left += strings.Repeat(" ", pad)
+	}
+	return styleStatus.Width(m.frameW()).Render(left + right)
+}
+
 func (m *Model) statusView() string {
 	if m.picking {
 		left := styleBadgeFiles.Render("选择 " + pickerKindLabel(m.pickerKind))
@@ -204,11 +220,7 @@ func (m *Model) statusView() string {
 			left += " / " + styleErrText.Render(m.searchErr.Error())
 		}
 		right := "上下选择 / 输入过滤 / Ctrl+R 刷新 / Enter 抓取并检索 / Esc 退出"
-		pad := m.frameW() - lipgloss.Width(left) - lipgloss.Width(right)
-		if pad > 0 {
-			left += strings.Repeat(" ", pad)
-		}
-		return styleStatus.Width(m.frameW()).Render(left + right)
+		return m.statusLine(left, right)
 	}
 	var badge string
 	literalOn := m.matchLiteral && (m.mode == ModeContent || m.fallbackActive)
@@ -252,11 +264,7 @@ func (m *Model) statusView() string {
 	if m.finder {
 		right = "? 帮助 / Ctrl+Space 标记 / Ctrl+F 匹配 / Enter 输出 / Esc 清空"
 	}
-	pad := m.frameW() - lipgloss.Width(left) - lipgloss.Width(right)
-	if pad > 0 {
-		left += strings.Repeat(" ", pad)
-	}
-	return styleStatus.Width(m.frameW()).Render(left + right)
+	return m.statusLine(left, right)
 }
 
 // highlightMatch 把 s 中出现的 q（忽略大小写）高亮成青色加粗。

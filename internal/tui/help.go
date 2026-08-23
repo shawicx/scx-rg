@@ -94,21 +94,28 @@ func (m *Model) helpView() string {
 		}
 		return sb.String()
 	}
-	half := (len(groups) + 1) / 2
-	colA := lipgloss.JoinVertical(lipgloss.Left, mapGroups(groups[:half], renderGroup)...)
-	colB := lipgloss.JoinVertical(lipgloss.Left, mapGroups(groups[half:], renderGroup)...)
-
-	gap := strings.Repeat(" ", 4)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, colA, gap, colB)
-	inner := stylePanelTitle.Render("键位帮助") + styleDim.Render("  （按任意键返回）") + "\n\n" + body
-	// 两列内容按面板内宽截断（Width() 会对超宽行折行、撑爆帧高），
-	// 再撑满主区域高度（小终端截断），保持「帧行数 = 终端高度」不变式
+	renderGroups := func(gs []helpGroup) string {
+		return lipgloss.JoinVertical(lipgloss.Left, mapGroups(gs, renderGroup)...)
+	}
+	// 两列放得下才并排；窄终端退回单列（右列被整列截掉比单列更糟）
 	innerW := max(0, m.frameW()-m.listW-4)
-	avail := max(0, m.panelH()-2)
+	half := (len(groups) + 1) / 2
+	var body string
+	gap := strings.Repeat(" ", 4)
+	colA, colB := renderGroups(groups[:half]), renderGroups(groups[half:])
+	if widestLine(colA)+lipgloss.Width(gap)+widestLine(colB) <= innerW {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, colA, gap, colB)
+	} else {
+		body = renderGroups(groups) // 单列：全部组竖排
+	}
+	inner := stylePanelTitle.Render("键位帮助") + styleDim.Render("  （按任意键返回）") + "\n\n" + body
+	// 内容按面板内宽截断（Width() 会对超宽行折行、撑爆帧高），
+	// 再撑满主区域高度（小终端截断），保持「帧行数 = 终端高度」不变式
 	lines := strings.Split(inner, "\n")
 	for i, l := range lines {
 		lines[i] = ansiTruncate(l, innerW)
 	}
+	avail := max(0, m.panelH()-2)
 	if len(lines) > avail {
 		lines = lines[:avail-1]
 		lines = append(lines, styleDim.Render("...（终端高度不足，已截断）"))
@@ -117,6 +124,15 @@ func (m *Model) helpView() string {
 		lines = append(lines, "")
 	}
 	return styleBorderIdle.Render(strings.Join(lines, "\n"))
+}
+
+// widestLine 多行文本中最宽行的显示宽度。
+func widestLine(s string) int {
+	w := 0
+	for _, l := range strings.Split(s, "\n") {
+		w = max(w, lipgloss.Width(l))
+	}
+	return w
 }
 
 func mapGroups(gs []helpGroup, f func(helpGroup) string) []string {

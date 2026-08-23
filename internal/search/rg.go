@@ -38,6 +38,25 @@ type rgText struct {
 	Text string `json:"text"`
 }
 
+// parseRgLine 解析一行 rg --json 事件：match 事件返回结果与 true；
+// begin / context / end / summary 等其余事件、坏 JSON、空 path 返回 false。
+// 独立成纯函数便于无 rg 环境下单测（CI 不装 rg，走进程的测试会 skip）。
+func parseRgLine(line []byte) (Result, bool) {
+	var ev rgEvent
+	if json.Unmarshal(line, &ev) != nil || ev.Type != "match" {
+		return Result{}, false
+	}
+	path := strings.TrimPrefix(ev.Data.Path.Text, "./")
+	if path == "" {
+		return Result{}, false
+	}
+	return Result{
+		Path: path,
+		Line: ev.Data.LineNumber,
+		Text: strings.TrimSpace(ev.Data.Lines.Text),
+	}, true
+}
+
 // SearchStream 启动 rg 并通过 channel 流式返回匹配，全部发完（或达到上限、
 // 被取消、出错）后关闭 channel。取消 ctx 会立即杀死 rg 进程并解除发送阻塞。
 func (p RipgrepProvider) SearchStream(ctx context.Context, root, query string) (<-chan Result, error) {
@@ -79,18 +98,9 @@ func (p RipgrepProvider) SearchStream(ctx context.Context, root, query string) (
 			if len(line) == 0 {
 				continue
 			}
-			var ev rgEvent
-			if json.Unmarshal(line, &ev) != nil || ev.Type != "match" {
+			res, ok := parseRgLine(line)
+			if !ok {
 				continue
-			}
-			path := strings.TrimPrefix(ev.Data.Path.Text, "./")
-			if path == "" {
-				continue
-			}
-			res := Result{
-				Path: path,
-				Line: ev.Data.LineNumber,
-				Text: strings.TrimSpace(ev.Data.Lines.Text),
 			}
 			select {
 			case ch <- res:

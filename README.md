@@ -256,8 +256,14 @@ examples/                   zsh/fish 集成示例（CTRL-T 文件 / CTRL-R 历�
 go test ./...
 ```
 
-- `internal/search`：模糊匹配评分/分词语义、rg --files 的 gitignore 行为、流式搜索与取消不泄漏
-- `internal/tui`：流式结果追加、过期消息丢弃、新搜索重置状态（通过 drain 驱动 cmd 链模拟事件循环）
+- `internal/search`：模糊匹配评分/分词语义、rg --files 的 gitignore 行为、**rg --json 事件解析纯单测**（`parseRgLine`，不依赖真实 rg、CI 恒跑）、流式搜索与取消不泄漏、walk 忽略规则（skipDirs + 隐藏目录）
+- `internal/preview`：高亮行数对齐、CJK/emoji 折行、超长单行段数封顶（maxWrapSegments）、二进制嗅探、大文件窗口化、图片三档渲染与协议探测
+- `internal/tui`：流式结果追加、过期消息丢弃、新搜索重置状态（通过 drain 驱动 cmd 链模拟事件循环）、多选/帮助/finder/清理注入
+- **golden frame 快照**（`internal/tui/golden_test.go`）：`RenderOnce`/`View` 整帧去 ANSI 后与 `internal/tui/testdata/golden/*.txt` 逐字节对比（files 过滤、finder 详情、帮助浮层、多选标记、图片占位五个场景，全部 rg-free 确定性渲染）。有意改动界面后刷新基线：
+
+```bash
+go test ./internal/tui -update   # 重新生成 golden 基线，人工审查 diff 后提交
+```
 
 ## 已知限制 / Roadmap
 

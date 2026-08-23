@@ -249,7 +249,13 @@ func wrapSegments(s string, limit int) []string {
 	segs := strings.Split(wrapped, "\n")
 	if len(segs) > maxWrapSegments {
 		segs = segs[:maxWrapSegments]
-		segs[maxWrapSegments-1] += styleEllipsis.Render(" ...")
+		// 末段先腾出省略标记的宽度再追加：截断标记本身不能把行顶超面板宽，
+		// 否则超宽行会触发终端软换行、渲染器错位
+		last := segs[maxWrapSegments-1]
+		if room := limit - lipgloss.Width(" ..."); room > 0 {
+			last = truncate.String(last, uint(room))
+		}
+		segs[maxWrapSegments-1] = last + styleEllipsis.Render(" ...")
 	}
 	return segs
 }

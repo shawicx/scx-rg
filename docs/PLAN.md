@@ -60,11 +60,15 @@
 - 主题样式收敛到 `initStyles()` 单一定义点，ApplyTheme 换色后全局重建
 - config.toml 的 ignore 同时传给 `rg -g '!dir/'` 与内置遍历
 
-## M5 工程质量（随 M1 同步启动，不后置）
+## M5 工程质量（✅ 2026-08-23 完成）
 
-- 单测：`search`（rg JSON 解析、walk 跳过规则）、`preview`（高亮行数对齐、截断、二进制嗅探）、`tui`（用 tea 的 test harness 驱动 Update 状态机）
-- **golden frame 测试**：`--once` 输出去 ANSI 后做快照对比（现有 `--once` 就是为这个设计的）
-- CI：GitHub Actions（build + test + vet），goreleaser 发布
+| 事项 | 状态 |
+| --- | --- |
+| 单测 search | ✅ rg --json 解析抽取为纯函数 `parseRgLine` 单测（match 单行/多行、begin/context/end 忽略、`./` 剥离、坏 JSON——CI 无 rg 恒跑，不再全部 skip）；walk 跳过规则含 skipDirs 与隐藏目录独立用例 |
+| 单测 preview | ✅ 高亮行数对齐、CJK/emoji 折行、二进制嗅探、大文件窗口化在 M2/M3 已覆盖；本轮补 maxWrapSegments 超长单行封顶测试，并**修复截断标记把行顶超面板宽的缺陷**（末段先腾出 `...` 宽度再追加） |
+| 单测 tui | ✅ drain 同步驱动 cmd 链模拟事件循环（M1 起持续使用），覆盖流式/过期/重置/多选/帮助/finder/图形清理注入 |
+| golden frame 测试 | ✅ `internal/tui/golden_test.go`：五个确定性场景（files 过滤、finder 详情、帮助浮层、多选标记、图片占位）整帧去 ANSI 后与 `testdata/golden/*.txt` 对比；`go test ./internal/tui -update` 刷新基线；失败输出首差异 ±3 行。**顺手修复两个真 bug**：状态栏右侧提示超宽折行破坏帧高不变式（90 列终端触发）；帮助浮层双列在窄终端右列被整列截掉（改自适应单/双列） |
+| CI | ✅ build + test + vet（ubuntu/macos 矩阵）+ `--once` 冒烟 + goreleaser/git-cliff 配置检查在 M1–M4 期间已就绪；本轮补 gofmt 检查步骤 |
 
 ## 建议的第一周切入点（按序）
 
