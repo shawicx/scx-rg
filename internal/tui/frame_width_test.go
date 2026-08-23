@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // TestFrameFitsAmbiguousWideTerminals 防界面鬼影回归（2026-08-22 修复）：
@@ -56,10 +56,10 @@ func TestFrameFitsAmbiguousWideTerminals(t *testing.T) {
 			if step == "按上后" {
 				key = tea.KeyUp
 			}
-			_, cmd := m.Update(tea.KeyMsg{Type: key})
+			_, cmd := m.Update(tea.KeyPressMsg{Code: key})
 			m.drain(cmd)
 		}
-		v := m.View()
+		v := m.frame()
 		if n := strings.Count(v, "\n") + 1; n != m.height {
 			t.Errorf("%s: 帧行数 %d 应等于终端高度 %d", step, n, m.height)
 		}

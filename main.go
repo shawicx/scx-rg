@@ -12,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
 
 	"scx-rg/internal/config"
@@ -129,7 +130,7 @@ func main() {
 	m := tui.New(cfg)
 
 	if *once {
-		fmt.Println(m.RenderOnce(*onceW, *onceH, *onceQuery, *oncePreview))
+		_, _ = lipgloss.Println(m.RenderOnce(*onceW, *onceH, *onceQuery, *oncePreview))
 		return
 	}
 
@@ -137,11 +138,11 @@ func main() {
 	// 此时降级为单帧渲染，而不是崩溃。
 	if !hasTTY() {
 		fmt.Fprintln(os.Stderr, "⚠ 当前环境没有可用的 TTY（IDE 运行窗/管道），已降级为单帧渲染；请在真实终端中运行获得交互体验")
-		fmt.Println(m.RenderOnce(*onceW, *onceH, *onceQuery, *oncePreview))
+		_, _ = lipgloss.Println(m.RenderOnce(*onceW, *onceH, *onceQuery, *oncePreview))
 		return
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	final, err := p.Run()
 	if err != nil {
 		die(err)
@@ -257,7 +258,7 @@ func runLogSource(kind string, args []string) {
 			RgAvailable: true,
 			PickLine:    true,
 		})
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		p := tea.NewProgram(m)
 		final, err := p.Run()
 		if err != nil {
 			die(err)
@@ -301,7 +302,7 @@ func runLogSource(kind string, args []string) {
 		cfg.FollowFile = logPath
 	}
 	m := tui.New(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	final, err := p.Run()
 	if err != nil {
 		die(err)

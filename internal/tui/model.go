@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/cursor"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/cursor"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/logs"
 	"scx-rg/internal/preview"
@@ -191,7 +191,10 @@ func New(cfg Config) *Model {
 	ti.Prompt = "> "
 	ti.Placeholder = "输入关键词，实时搜索..."
 	ti.CharLimit = 256
-	ti.PromptStyle = stylePrompt
+	tiStyles := ti.Styles()
+	tiStyles.Focused.Prompt = stylePrompt
+	tiStyles.Blurred.Prompt = stylePrompt
+	ti.SetStyles(tiStyles)
 	ti.Focus()
 
 	m := &Model{cfg: cfg, root: cfg.Root, mode: cfg.Mode, input: ti}
@@ -567,12 +570,12 @@ func (m *Model) previewSize() (cols, rows int) {
 }
 
 func (m *Model) scrollToJump(jump, totalLines int) {
-	if jump <= 0 || totalLines <= 0 || m.vp.Height <= 0 {
+	if jump <= 0 || totalLines <= 0 || m.vp.Height() <= 0 {
 		return
 	}
-	y := jump - 1 - max(1, m.vp.Height/3)
+	y := jump - 1 - max(1, m.vp.Height()/3)
 	y = max(0, y)
-	y = min(y, max(0, totalLines-m.vp.Height))
+	y = min(y, max(0, totalLines-m.vp.Height()))
 	m.vp.SetYOffset(y)
 }
 
@@ -592,7 +595,7 @@ func (m *Model) RenderOnce(w, h int, query, focus string) string {
 		m.sel = 0
 		m.drain(m.followSelection())
 	}
-	return m.View()
+	return m.frame()
 }
 
 // drain 同步驱动 cmd/msg 链直到结束，模拟 bubbletea 事件循环（展开 BatchMsg）。

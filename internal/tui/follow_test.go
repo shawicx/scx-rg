@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/preview"
 	"scx-rg/internal/search"
@@ -72,7 +72,7 @@ func TestFollowRefreshKeepsSelection(t *testing.T) {
 		t.Fatalf("前置: 初始 2 条, 得到 %d", len(m.results))
 	}
 	// 用户选中第 2 条
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if m.sel != 1 || m.results[m.sel].Line != 2 {
 		t.Fatalf("前置失败: sel=%d %+v", m.sel, m.results[m.sel])
 	}

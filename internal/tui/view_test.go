@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/preview"
 )
@@ -15,8 +15,8 @@ import (
 func TestHeaderShowsCustomTitle(t *testing.T) {
 	m := New(Config{Root: t.TempDir(), Title: "docker:web"})
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	if !strings.Contains(m.View(), "docker:web") {
-		t.Fatalf("自定义标题应显示在头部:\n%s", m.View())
+	if !strings.Contains(m.frame(), "docker:web") {
+		t.Fatalf("自定义标题应显示在头部:\n%s", m.frame())
 	}
 }
 
@@ -26,7 +26,7 @@ func TestEnterPicksLineTextInEphemeralMode(t *testing.T) {
 	triggerSearch(m)
 	m.cfg.PickLine = true // docker/日志快照等临时场景：Enter 输出行文本而非路径
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.picked != "2026-08-20 ERROR boom" {
 		t.Fatalf("PickLine 模式应输出选中行文本, 得到 %q", m.picked)
 	}
@@ -56,10 +56,10 @@ func TestWindowedPreviewScrollsToPhysicalOffset(t *testing.T) {
 	if ren.JumpOffset <= 0 {
 		t.Fatalf("JumpOffset 应为正数: %d", ren.JumpOffset)
 	}
-	visible := m.vp.YOffset + 1 // vp 当前行号（1 起始）
-	if ren.JumpOffset < visible || ren.JumpOffset > visible+m.vp.Height-1 {
+	visible := m.vp.YOffset() + 1 // vp 当前行号（1 起始）
+	if ren.JumpOffset < visible || ren.JumpOffset > visible+m.vp.Height()-1 {
 		t.Fatalf("jump 物理行 %d 不在可视区 [%d, %d]",
-			ren.JumpOffset, visible, visible+m.vp.Height-1)
+			ren.JumpOffset, visible, visible+m.vp.Height()-1)
 	}
 }
 
@@ -73,7 +73,7 @@ func TestFilesModeEmptyResultHintsContentMode(t *testing.T) {
 	m.input.SetValue("needle")
 	triggerSearch(m) // files 模式：文件名不含 needle → 无结果
 
-	view := m.View()
+	view := m.frame()
 	if !strings.Contains(view, "Tab") || !strings.Contains(view, "内容模式") {
 		t.Fatalf("文件模式无结果时应提示切换内容模式，实际视图:\n%s", view)
 	}

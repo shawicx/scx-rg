@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/preview"
 )
@@ -32,7 +32,7 @@ func TestCtrlFTogglesExactMatch(t *testing.T) {
 		t.Fatal("默认应是模糊模式，状态栏不应显示精确")
 	}
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m.drain(cmd)
 	if !m.matchExact {
 		t.Fatal("Ctrl+F 后应处于精确模式")
@@ -44,7 +44,7 @@ func TestCtrlFTogglesExactMatch(t *testing.T) {
 		t.Fatalf("状态栏应显示精确徽章:\n%s", m.statusView())
 	}
 
-	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m.drain(cmd)
 	if m.matchExact || len(m.results) != 3 {
 		t.Fatalf("再次 Ctrl+F 应切回模糊并恢复结果，matchExact=%v results=%d", m.matchExact, len(m.results))
@@ -83,7 +83,7 @@ func TestInvalidRegexAutoFallsBackToLiteral(t *testing.T) {
 
 	// Ctrl+F 手动切到字面量后，正则写法按字面搜索（粘性开关生效）
 	m.input.SetValue(`log\.(error|warn)`)
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m.drain(cmd)
 	if !m.matchLiteral || len(m.results) != 0 {
 		t.Fatalf("字面量模式下正则写法应无命中: matchLiteral=%v results=%v", m.matchLiteral, m.results)

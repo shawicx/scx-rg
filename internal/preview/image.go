@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/mattn/go-sixel"
 	"github.com/muesli/termenv"
 	xdraw "golang.org/x/image/draw"

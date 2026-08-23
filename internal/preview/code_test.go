@@ -7,8 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/lipgloss/v2"
 )
 
 // bigLogFile 生成一个超过 maxCodeBytes 的多行文件，第 n 行内容含 MARK%04d 标记。
@@ -182,14 +181,12 @@ func forceColorFormatter(t *testing.T) {
 	t.Cleanup(func() { formatterFor = old })
 }
 
-// forceColor 同时强制 chroma 与 lipgloss 出色彩；断言 ANSI 序列的测试必须用它，
-// 否则 Ascii 档位下样式静默退化成纯文本，断言形同虚设。
+// forceColor 强制 chroma 出色彩；断言 ANSI 序列的测试必须用它，
+// 否则 Ascii 档位下 chroma 样式静默退化成纯文本，断言形同虚设。
+// （lipgloss v2 的 Render 恒输出全保真 ANSI，无需再强制其档位。）
 func forceColor(t *testing.T) {
 	t.Helper()
 	forceColorFormatter(t)
-	old := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.ANSI256)
-	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
 }
 
 // TestHighlightLinesSelfContainedPerLine 跨行 token（块注释、多行字符串）修复后，

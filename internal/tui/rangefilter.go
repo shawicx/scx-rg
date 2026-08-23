@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"scx-rg/internal/search"
 )
@@ -115,8 +115,8 @@ func (m *Model) toggleRangeBar() tea.Cmd {
 	} else {
 		m.input.Focus()
 	}
-	m.vp.Width = max(0, m.prevW-2)
-	m.vp.Height = max(0, m.panelH()-3)
+	m.vp.SetWidth(max(0, m.prevW-2))
+	m.vp.SetHeight(max(0, m.panelH()-3))
 	return m.followSelectionReload() // 面板高度变化后重渲染并重新定位
 }
 
@@ -140,31 +140,31 @@ func capPresetIndex(n int) int {
 
 // handleRangeBarKey 筛选栏聚焦时的按键：←→ 选 chip（即时生效），
 // ↑↓/Tab 切换时间/条数段，Enter/Esc/Ctrl+T 关闭。
-func (m *Model) handleRangeBarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleRangeBarKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	presets := len(rangeDurPresets)
 	if m.rangeSeg == 1 {
 		presets = len(rangeCapPresets)
 	}
-	switch msg.Type {
-	case tea.KeyCtrlC:
+	switch msg.String() {
+	case "ctrl+c":
 		m.shutdown()
 		m.picked = ""
 		return m, tea.Quit
 
-	case tea.KeyCtrlT, tea.KeyEnter, tea.KeyEsc:
+	case "ctrl+t", "enter", "esc":
 		return m, m.toggleRangeBar()
-	case tea.KeyUp, tea.KeyCtrlP:
+	case "up", "ctrl+p":
 		m.rangeSeg = 0
-	case tea.KeyDown, tea.KeyCtrlN:
+	case "down", "ctrl+n":
 		m.rangeSeg = 1
-	case tea.KeyTab:
+	case "tab":
 		m.rangeSeg = 1 - m.rangeSeg
-	case tea.KeyLeft:
+	case "left":
 		if m.rangeSel[m.rangeSeg] > 0 {
 			m.rangeSel[m.rangeSeg]--
 			return m, m.rangeChipApply()
 		}
-	case tea.KeyRight:
+	case "right":
 		if m.rangeSel[m.rangeSeg] < presets-1 {
 			m.rangeSel[m.rangeSeg]++
 			return m, m.rangeChipApply()

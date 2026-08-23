@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 // borderASCII 宽度确定的 ASCII 边框。Unicode 制表符边框（╭─│╰╯）属于
 // East Asian Ambiguous 宽度字符，在中文环境「歧义宽按 2 格」的终端里会

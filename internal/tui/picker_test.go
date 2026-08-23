@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/logs"
 	"scx-rg/internal/preview"
@@ -58,19 +58,19 @@ func TestPickerLoadFilterAndPick(t *testing.T) {
 	if len(m.pickerView) != 3 {
 		t.Fatalf("应加载 3 个容器, 得到 %d", len(m.pickerView))
 	}
-	view := m.View()
+	view := m.frame()
 	if !strings.Contains(view, "nginx:stable") {
 		t.Fatalf("列表应显示镜像名:\n%s", view)
 	}
 
 	// 输入即时模糊过滤（名称+镜像）
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("api")})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "api"})
 	if len(m.pickerView) != 1 || m.pickerView[0].Target.Name != "api" {
 		t.Fatalf("过滤后应只剩 api: %+v", m.pickerView)
 	}
 
 	// Enter 抓取快照并切入检索
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.drain(cmd)
 	if m.picking {
 		t.Fatal("Enter 后应切入检索阶段")
@@ -120,7 +120,7 @@ func TestPickerFollowPick(t *testing.T) {
 	}
 	m := newPickerModel(t, cfg)
 	m.drain(m.Init())
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.drain(cmd)
 
 	if m.picking {
@@ -161,7 +161,7 @@ func TestPickerFetchErrorStaysAndRetry(t *testing.T) {
 	m := newPickerModel(t, cfg)
 	m.drain(m.Init())
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.drain(cmd)
 	if !m.picking {
 		t.Fatal("抓取失败应停留在选择器")
@@ -175,7 +175,7 @@ func TestPickerFetchErrorStaysAndRetry(t *testing.T) {
 
 	// 恢复后重试成功
 	fetchErr = nil
-	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.drain(cmd)
 	if m.picking || calls != 2 {
 		t.Fatalf("重试应成功切入检索: picking=%v calls=%d", m.picking, calls)
@@ -196,10 +196,10 @@ func TestPickerEmptyListEnterNoop(t *testing.T) {
 	if len(m.pickerView) != 0 {
 		t.Fatal("前置: 空列表")
 	}
-	if !strings.Contains(m.View(), "没有") {
-		t.Fatalf("空列表应有提示:\n%s", m.View())
+	if !strings.Contains(m.frame(), "没有") {
+		t.Fatalf("空列表应有提示:\n%s", m.frame())
 	}
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd != nil {
 		t.Fatal("空列表 Enter 应为空操作")
 	}
@@ -224,7 +224,7 @@ func TestPickerCtrlRRefreshes(t *testing.T) {
 		t.Fatalf("前置: 1 个容器, 得到 %d", len(m.pickerView))
 	}
 	srcs = pickerTestSources
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	if cmd == nil {
 		t.Fatal("Ctrl+R 应触发刷新")
 	}

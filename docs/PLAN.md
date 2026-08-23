@@ -80,6 +80,6 @@
 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
-| viewport 嵌图形序列在真终端的行为 | 图片功能可能需独立渲染层 | M3 已内建防残留机制（删除序列 + 禁滚动）+ halfblock 备选已落地；真机视觉验证待办（README checklist） |
+| viewport 嵌图形序列在真终端的行为 | 图片功能可能需独立渲染层 | M3 已内建防残留机制（删除序列 + 禁滚动）+ halfblock 备选已落地；真机视觉验证待办（README checklist）；2026-08-23 已升级 bubbletea v2（新渲染器），真机回归更需确认 |
 | 大文件高亮卡 UI（当前在 goroutine，但 1MB 上限仍慢） | 切选卡顿 | 预览缓存 + 上限调优 + 大文件只渲染可视区 |
-| bubbletea v2 正式发布 | API 迁移成本 | 锁 v1，升级列入 backlog |
+| ~~bubbletea v2 正式发布~~ | ✅ 2026-08-23 已完成迁移：charm.land/v2 全家桶（bubbletea v2.0.9 / lipgloss v2.0.6 / bubbles v2.2.0）+ 同大版本补丁（go-runewidth v0.0.28 等）。要点：`View() tea.View` 声明式（AltScreen 移入 View 字段）、按键 `tea.KeyPressMsg` + `msg.String()` 匹配（Ctrl+Space 需同时匹配 ctrl+@/ctrl+space）、lipgloss v2 `Width()` 含边框计宽（面板宽度不再减 2）、`--once` 打印改 `lipgloss.Println` 降采样；golden 基线零变化（逐字节复原）。已知绕过：bubbles v2.2.0 textinput CJK 占位符泄漏 `\x00`（headerView 定向剔除，上游修复后可移除） |

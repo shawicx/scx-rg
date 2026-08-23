@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"scx-rg/internal/logs"
 	"scx-rg/internal/search"
@@ -177,14 +177,14 @@ func (m *Model) shutdown() {
 
 // handlePickerKey 选择器阶段的按键：↑↓ 导航、Enter 抓取、Ctrl+R 刷新、
 // 输入即时过滤；Esc 退出。
-func (m *Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyCtrlC:
+func (m *Model) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
 		m.shutdown()
 		m.picked = ""
 		return m, tea.Quit
 
-	case tea.KeyEsc:
+	case "esc":
 		if m.input.Value() != "" {
 			m.input.SetValue("")
 			m.pickerFilter()
@@ -193,7 +193,7 @@ func (m *Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.shutdown()
 		return m, tea.Quit
 
-	case tea.KeyEnter:
+	case "enter":
 		if !m.pickLoading && m.sel < len(m.pickerView) {
 			m.pickLoading = true
 			m.searchErr = nil
@@ -201,7 +201,7 @@ func (m *Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyUp, tea.KeyCtrlP:
+	case "up", "ctrl+p":
 		if m.sel > 0 {
 			m.sel--
 		}
@@ -209,7 +209,7 @@ func (m *Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pickerPreview()
 		return m, nil
 
-	case tea.KeyDown, tea.KeyCtrlN:
+	case "down", "ctrl+n":
 		if m.sel < len(m.pickerView)-1 {
 			m.sel++
 		}
@@ -217,7 +217,7 @@ func (m *Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pickerPreview()
 		return m, nil
 
-	case tea.KeyCtrlR:
+	case "ctrl+r":
 		if m.pickLoading {
 			return m, nil
 		}
@@ -309,7 +309,7 @@ func (m *Model) pickerListView() string {
 	}
 	title += styleDim.Render(fmt.Sprintf("  %d/%d", min(m.sel+1, len(m.pickerView)), len(m.pickerView)))
 	body := title + "\n" + strings.Join(rows, "\n")
-	return styleBorderActive.Width(m.listW - 2).Render(body)
+	return styleBorderActive.Width(m.listW).Render(body)
 }
 
 func (m *Model) pickerRow(i, w int) string {

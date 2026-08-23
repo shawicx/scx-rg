@@ -5,14 +5,22 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muesli/reflow/truncate"
 
 	"scx-rg/internal/preview"
 )
 
-// View 自上而下：搜索框 → [筛选栏] → [结果列表 | 预览面板] → 状态栏。
-func (m *Model) View() string {
+// View 声明式视图：内容走 frame()，alt-screen 等终端能力在此声明。
+func (m *Model) View() tea.View {
+	v := tea.NewView(m.frame())
+	v.AltScreen = true
+	return v
+}
+
+// frame 自上而下：搜索框 → [筛选栏] → [结果列表 | 预览面板] → 状态栏。
+func (m *Model) frame() string {
 	if m.width < 60 || m.height < 12 {
 		return styleDim.Render("终端太小啦，至少需要 60x12")
 	}
@@ -43,8 +51,12 @@ func (m *Model) headerView() string {
 		name = " " + m.cfg.Title + " "
 	}
 	inner := styleAppTitle.Render(name) + " " + m.input.View()
+	// bubbles v2.2.0 上游缺陷：CJK 占位符的显示宽度被当作 rune 下标使用，
+	// placeholderView 会把 make 零值填充的 \x00 泄漏进渲染串（宽度 0，仅污染
+	// 输出与 golden 对比）。这里定向剔除；上游修复后可移除。
+	inner = strings.ReplaceAll(inner, "\x00", "")
 	inner = ansiTruncate(inner, m.frameW()-4)
-	return styleInputBox.Width(m.frameW() - 2).Render(inner)
+	return styleInputBox.Width(m.frameW()).Render(inner)
 }
 
 func (m *Model) listView() string {
@@ -89,7 +101,7 @@ func (m *Model) listView() string {
 	}
 	title += styleDim.Render(fmt.Sprintf("  %d/%d", min(m.sel+1, len(m.results)), len(m.results)))
 	body := title + "\n" + strings.Join(rows, "\n")
-	return styleBorderActive.Width(m.listW - 2).Render(body)
+	return styleBorderActive.Width(m.listW).Render(body)
 }
 
 func (m *Model) resultRow(i, w int) string {
@@ -162,7 +174,7 @@ func (m *Model) previewView() string {
 		if len(m.pickerView) == 0 {
 			body = stylePlaceholder.Render("选择左侧目标查看详情")
 		}
-		return styleBorderIdle.Width(m.prevW - 2).Render(title + "\n" + body)
+		return styleBorderIdle.Width(m.prevW).Render(title + "\n" + body)
 	}
 	switch {
 	case m.prevLoading:
@@ -188,7 +200,7 @@ func (m *Model) previewView() string {
 		}
 	}
 	inner := title + "\n" + body
-	return styleBorderIdle.Width(m.prevW - 2).Render(inner)
+	return styleBorderIdle.Width(m.prevW).Render(inner)
 }
 
 // statusLine 拼状态栏单行：左侧超宽先截左，右侧提示超宽截右，

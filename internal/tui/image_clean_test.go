@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/preview"
 )
@@ -48,7 +48,7 @@ func stepTo(t *testing.T, m *Model, idx int) {
 		if m.sel > idx {
 			key = tea.KeyUp
 		}
-		_, cmd := m.Update(tea.KeyMsg{Type: key})
+		_, cmd := m.Update(tea.KeyPressMsg{Code: key})
 		m.drain(cmd)
 	}
 	t.Fatalf("无法导航到第 %d 项（当前 %d/%d）", idx, m.sel, len(m.results))
@@ -96,13 +96,13 @@ func TestKittyGraphicClearedWhenPreviewEmptied(t *testing.T) {
 	if m.prevPath != "" {
 		t.Fatalf("runSearch 后预览应清空，prevPath=%q", m.prevPath)
 	}
-	if v := m.View(); !strings.Contains(v, preview.KittyDeleteImage) {
+	if v := m.frame(); !strings.Contains(v, preview.KittyDeleteImage) {
 		t.Errorf("清空后的帧应送出删除序列:\n%q", v)
 	}
 	if m.imgActive {
 		t.Error("序列送出后 imgActive 标志应就地消费")
 	}
-	if v := m.View(); strings.Contains(v, preview.KittyDeleteImage) {
+	if v := m.frame(); strings.Contains(v, preview.KittyDeleteImage) {
 		t.Error("删除序列只应随首帧发送一次")
 	}
 }
@@ -114,18 +114,18 @@ func TestImagePreviewDisablesScroll(t *testing.T) {
 	m.vp.SetContent(strings.Repeat("line\n", 100))
 	m.vp.SetYOffset(0)
 
-	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyPgDown}); cmd != nil {
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown}); cmd != nil {
 		m.drain(cmd)
 	}
-	if m.vp.YOffset != 0 {
-		t.Errorf("图片预览不应滚动，YOffset=%d", m.vp.YOffset)
+	if m.vp.YOffset() != 0 {
+		t.Errorf("图片预览不应滚动，YOffset=%d", m.vp.YOffset())
 	}
 
 	m.prevKind = string(preview.KindCode)
-	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyPgDown}); cmd != nil {
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown}); cmd != nil {
 		m.drain(cmd)
 	}
-	if m.vp.YOffset == 0 {
+	if m.vp.YOffset() == 0 {
 		t.Error("代码预览应可正常滚动")
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/preview"
 )
@@ -36,7 +36,7 @@ func TestPreviewCacheSkipsRerenderOnRevisit(t *testing.T) {
 		t.Fatalf("预览应显示 %s:\n%s", first, m.vp.View())
 	}
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m.drain(cmd) // 切到另一条（第 2 次渲染）
 	if renders != 2 {
 		t.Fatalf("切换后渲染次数 = %d, 期望 2", renders)
@@ -46,7 +46,7 @@ func TestPreviewCacheSkipsRerenderOnRevisit(t *testing.T) {
 		t.Fatalf("预览应显示 %s:\n%s", second, m.vp.View())
 	}
 
-	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	m.drain(cmd) // 切回首条：缓存命中，渲染次数不变
 	if renders != 2 {
 		t.Fatalf("回访应命中缓存，渲染次数 = %d, 期望仍为 2", renders)

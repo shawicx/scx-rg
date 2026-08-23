@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/search"
 )
@@ -24,15 +24,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.listW = max(0, m.width-30)
 		}
 		m.prevW = max(0, m.frameW()-m.listW)
-		m.input.Width = max(10, m.width-16)
+		m.input.SetWidth(max(10, m.width-16))
 
 		vpW := max(0, m.prevW-2)
 		vpH := max(0, m.panelH()-3)
-		if m.vp.Width == 0 && m.vp.Height == 0 {
-			m.vp = viewport.New(vpW, vpH)
+		if m.vp.Width() == 0 && m.vp.Height() == 0 {
+			m.vp = viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(vpH))
 		} else {
-			m.vp.Width = vpW
-			m.vp.Height = vpH
+			m.vp.SetWidth(vpW)
+			m.vp.SetHeight(vpH)
 		}
 		if m.prevPath != "" {
 			m.prevLoading = true
@@ -152,7 +152,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyPreview(msg.path, msg.rendered, msg.err)
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
 	default:
@@ -162,7 +162,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.picking {
 		return m.handlePickerKey(msg)
 	}
@@ -171,7 +171,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	// 帮助浮层打开时按任意键关闭（Ctrl+C 仍直接退出）
 	if m.helpOverlay {
-		if msg.Type == tea.KeyCtrlC {
+		if msg.String() == "ctrl+c" {
 			m.shutdown()
 			m.picked = ""
 			return m, tea.Quit
@@ -180,22 +180,22 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// ? 在输入为空时打开帮助（非空时作为搜索字符）；F1 总是可用
-	if msg.Type == tea.KeyF1 || (msg.String() == "?" && m.input.Value() == "") {
+	if msg.String() == "f1" || (msg.String() == "?" && m.input.Value() == "") {
 		m.helpOverlay = true
 		return m, nil
 	}
-	switch msg.Type {
-	case tea.KeyCtrlC:
+	switch msg.String() {
+	case "ctrl+c":
 		m.shutdown() // 退出前杀掉可能仍在跑的 rg / 跟随进程
 		m.picked = ""
 		return m, tea.Quit
 
-	case tea.KeyEnter:
+	case "enter":
 		m.shutdown()
 		m.picked = m.pickedOutput()
 		return m, tea.Quit
 
-	case tea.KeyEsc:
+	case "esc":
 		if m.input.Value() != "" {
 			m.input.SetValue("")
 			m.version++
@@ -210,13 +210,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.shutdown()
 		return m, tea.Quit
 
-	case tea.KeyCtrlAt: // Ctrl+Space：多数终端发送 NUL(0x00)，bubbletea 识别为 ctrl+@
+	case "ctrl+@", "ctrl+space": // Ctrl+Space：legacy 终端发 NUL 记为 ctrl+@，kitty 协议终端记为 ctrl+space
 		return m, m.toggleMark()
 
-	case tea.KeyCtrlT:
+	case "ctrl+t":
 		return m, m.toggleRangeBar()
 
-	case tea.KeyCtrlF:
+	case "ctrl+f":
 		// 匹配行为切换：文件模式=精确(子串)/模糊；内容与全文回退=字面量(-F)/正则
 		if m.mode == ModeContent || m.fallbackActive {
 			m.matchLiteral = !m.matchLiteral
@@ -227,13 +227,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.followKeep = ""
 		return m, m.runSearch()
 
-	case tea.KeyCtrlO:
+	case "ctrl+o":
 		return m, m.openInPager()
 
-	case tea.KeyCtrlY:
+	case "ctrl+y":
 		return m, m.copySelection()
 
-	case tea.KeyTab:
+	case "tab":
 		if m.finder {
 			return m, nil // finder 模式无内容搜索概念
 		}
@@ -246,29 +246,29 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.followKeep = ""
 		return m, m.runSearch()
 
-	case tea.KeyUp, tea.KeyCtrlP:
+	case "up", "ctrl+p":
 		if m.sel > 0 {
 			m.sel--
 		}
 		m.adjustOffset()
 		return m, m.followSelection()
 
-	case tea.KeyDown, tea.KeyCtrlN:
+	case "down", "ctrl+n":
 		if m.sel < len(m.results)-1 {
 			m.sel++
 		}
 		m.adjustOffset()
 		return m, m.followSelection()
 
-	case tea.KeyPgUp:
+	case "pgup":
 		if !m.imagePreview() {
-			m.vp.LineUp(m.vp.Height / 2)
+			m.vp.ScrollUp(m.vp.Height() / 2)
 		}
 		return m, nil
 
-	case tea.KeyPgDown:
+	case "pgdown":
 		if !m.imagePreview() {
-			m.vp.LineDown(m.vp.Height / 2)
+			m.vp.ScrollDown(m.vp.Height() / 2)
 		}
 		return m, nil
 

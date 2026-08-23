@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/preview"
 	"scx-rg/internal/search"
@@ -124,17 +124,17 @@ func TestGoldenFinder(t *testing.T) {
 	// finder 候选非文件路径，直接跟随首条展示详情面板
 	m.prevPath = ""
 	m.drain(m.followSelection())
-	goldenFrame(t, "finder", m.View())
+	goldenFrame(t, "finder", m.frame())
 }
 
 func TestGoldenHelp(t *testing.T) {
 	m := goldenFilesModel(t)
 	m.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
 	m.drain(m.Init())
-	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF1}); cmd != nil {
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyF1}); cmd != nil {
 		m.drain(cmd)
 	}
-	goldenFrame(t, "help", m.View())
+	goldenFrame(t, "help", m.frame())
 }
 
 func TestGoldenMultiselect(t *testing.T) {
@@ -142,11 +142,11 @@ func TestGoldenMultiselect(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
 	m.drain(m.Init())
 	for range 2 {
-		if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt}); cmd != nil {
+		if _, cmd := m.Update(tea.KeyPressMsg{Code: '@', Mod: tea.ModCtrl}); cmd != nil {
 			m.drain(cmd)
 		}
 	}
-	goldenFrame(t, "multiselect", m.View())
+	goldenFrame(t, "multiselect", m.frame())
 }
 
 func TestGoldenImagePlaceholder(t *testing.T) {

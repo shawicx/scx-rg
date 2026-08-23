@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/preview"
 	"scx-rg/internal/search"
@@ -126,7 +126,7 @@ func TestFilesModeAutoFallsBackToContentSearch(t *testing.T) {
 	if m.prevPath != "readme.md" {
 		t.Fatalf("预览应跟随回退结果: %q", m.prevPath)
 	}
-	view := m.View()
+	view := m.frame()
 	if !strings.Contains(view, "全文") {
 		t.Fatalf("回退状态下列表应标注「全文」来源:\n%s", view)
 	}

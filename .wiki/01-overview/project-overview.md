@@ -31,8 +31,8 @@ scx-rg 是一个**基于 ripgrep 的终端搜索浏览器**，同时通过 `--pr
 | 依赖 | 用途 |
 | --- | --- |
 | Go 1.26（go.mod） | 单模块，无代码生成 |
-| bubbletea v1.3.10 + bubbles v1.0.0 | TUI 框架（Elm 架构 Update/View）与 viewport/textinput 组件 |
-| lipgloss v1.1.0 | 样式/布局/计宽（经 charmbracelet/x/ansi） |
+| charm.land/bubbletea/v2 v2.0.9 + bubbles/v2 v2.2.0 | TUI 框架（Elm 架构 Update/View，声明式 tea.View）与 viewport/textinput 组件 |
+| charm.land/lipgloss/v2 v2.0.6 | 样式/布局/计宽（Width 含边框；打印经 lipgloss.Println 降采样） |
 | chroma/v2 v2.27.0 | 代码语法高亮 |
 | mattn/go-sixel | sixel 图形编码 |
 | golang.org/x/image | 图片缩放（CatmullRom）+ bmp/tiff/webp 解码 |

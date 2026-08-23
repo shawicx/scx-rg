@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/search"
 )
@@ -49,7 +49,7 @@ func TestFinderFiltersAndPicksLine(t *testing.T) {
 		t.Fatalf("过滤后应只剩 main.go: %v", m.results)
 	}
 
-	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil {
 		m.drain(cmd)
 	}
 	if m.picked != "main.go" {
@@ -58,7 +58,7 @@ func TestFinderFiltersAndPicksLine(t *testing.T) {
 
 	// Tab 在 finder 模式禁用
 	m2 := newFinderModel(t, []search.Candidate{{Text: "x"}}, t.TempDir())
-	pressKey(t, m2, tea.KeyTab)
+	pressKey(t, m2, tea.KeyPressMsg{Code: tea.KeyTab})
 	if !m2.finder || m2.mode != ModeFiles {
 		t.Error("Tab 不应切换 finder 模式")
 	}

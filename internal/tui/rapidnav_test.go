@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // TestRapidNavigationFrameHeightInvariant 模拟真实渲染时序：快速按键时每个按键
@@ -16,11 +16,11 @@ func TestRapidNavigationFrameHeightInvariant(t *testing.T) {
 	m.drain(m.Init())
 	bad := 0
 	check := func(tag string) {
-		n := strings.Count(m.View(), "\n") + 1
+		n := strings.Count(m.frame(), "\n") + 1
 		if n != m.height {
 			bad++
 			if bad <= 5 {
-				v := m.View()
+				v := m.frame()
 				lines := strings.Split(v, "\n")
 				t.Errorf("%s: 帧行数 %d != 高度 %d；超出行示例: %q / %q", tag, n, m.height,
 					lines[min(40, len(lines)-1)], lines[len(lines)-1])
@@ -29,14 +29,14 @@ func TestRapidNavigationFrameHeightInvariant(t *testing.T) {
 	}
 	check("初始")
 	for i := 0; i < 25; i++ {
-		m.Update(tea.KeyMsg{Type: tea.KeyDown}) // 不 drain：渲染器看到的瞬态
+		m.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // 不 drain：渲染器看到的瞬态
 		check("按下瞬间")
 	}
 	// 逐个补投递积压的 previewMsg（模拟异步陆续到达）
 	m.drain(nil)
 	check("回包后")
 	for i := 0; i < 25; i++ {
-		m.Update(tea.KeyMsg{Type: tea.KeyUp})
+		m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 		check("按上瞬间")
 	}
 	m.drain(nil)

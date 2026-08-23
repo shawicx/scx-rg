@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/preview"
 	"scx-rg/internal/search"
@@ -27,13 +27,13 @@ func TestLiveChipActivation(t *testing.T) {
 	m := newContentModel(t, map[string]string{"a.txt": "ERROR one\n"})
 	m.input.SetValue("ERROR")
 	triggerSearch(m)
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft}) // 全部 → 实时
+	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft}) // 全部 → 实时
 	if m.filterDur != 30*time.Second {
 		t.Fatalf("filterDur = %v, 期望 30s（实时）", m.filterDur)
 	}
-	if !strings.Contains(m.View(), "实时") {
-		t.Fatalf("状态栏应显示 实时:\n%s", m.View())
+	if !strings.Contains(m.frame(), "实时") {
+		t.Fatalf("状态栏应显示 实时:\n%s", m.frame())
 	}
 }
 
@@ -180,18 +180,18 @@ func TestRangeBarFilterByTime(t *testing.T) {
 	}
 
 	// Ctrl+T 打开筛选栏，光标落在当前生效的「全部」
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 	if !m.rangeBar {
 		t.Fatal("Ctrl+T 应打开筛选栏")
 	}
-	view := m.View()
+	view := m.frame()
 	if !strings.Contains(view, "时间") || !strings.Contains(view, "条数") {
 		t.Fatalf("筛选栏应显示时间/条数两段:\n%s", view)
 	}
 
 	// →→→ 移到「15分钟」，即时生效：旧时间戳行被滤掉，无时间戳行保留
 	for i := 0; i < 3; i++ {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+		_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	}
 	if m.filterDur != 15*time.Minute {
 		t.Fatalf("filterDur = %v, 期望 15m", m.filterDur)
@@ -204,11 +204,11 @@ func TestRangeBarFilterByTime(t *testing.T) {
 	}
 
 	// Enter 关闭筛选栏：筛选保留，状态栏可见
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.rangeBar {
 		t.Fatal("Enter 应关闭筛选栏")
 	}
-	view = m.View()
+	view = m.frame()
 	if !strings.Contains(view, "15分钟") {
 		t.Fatalf("状态栏应显示生效的时间筛选:\n%s", view)
 	}
@@ -226,9 +226,9 @@ func TestRangeBarCapKeepsLatest(t *testing.T) {
 		t.Fatalf("前置: 应命中 120 条, 得到 %d", len(m.results))
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})  // 切到「条数」段
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight}) // 全部 → 100条
+	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})  // 切到「条数」段
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // 全部 → 100条
 	if m.filterCap != 100 {
 		t.Fatalf("filterCap = %d, 期望 100", m.filterCap)
 	}
@@ -251,9 +251,9 @@ func TestRangeFilterAppliesDuringStream(t *testing.T) {
 	triggerSearch(m)
 
 	// 打开筛选栏并选「15分钟」
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 	for i := 0; i < 3; i++ {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+		_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	}
 	if len(m.results) != 1 {
 		t.Fatalf("前置: 筛选后应剩 1 条, 得到 %d", len(m.results))
@@ -275,8 +275,8 @@ func TestRangeBarCtrlCStillQuits(t *testing.T) {
 	m := newContentModel(t, map[string]string{"a.txt": "needle\n"})
 	m.input.SetValue("needle")
 	triggerSearch(m)
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if cmd == nil {
 		t.Fatal("筛选栏聚焦时 Ctrl+C 应触发退出 cmd")
 	}
@@ -300,8 +300,8 @@ func TestRangeFilterInertWithoutTimestamps(t *testing.T) {
 		t.Fatalf("前置: 文件模式应命中 1 条, 得到 %d", len(m.results))
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight}) // 「1分钟」
+	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // 「1分钟」
 	if m.filterDur != time.Minute {
 		t.Fatalf("filterDur = %v, 期望 1m", m.filterDur)
 	}
@@ -311,7 +311,7 @@ func TestRangeFilterInertWithoutTimestamps(t *testing.T) {
 	if m.tsOK {
 		t.Fatal("文件名不应被检测出时间戳")
 	}
-	view := m.View()
+	view := m.frame()
 	if !strings.Contains(view, "未检测到时间戳") {
 		t.Fatalf("时间段应提示未检测到时间戳:\n%s", view)
 	}

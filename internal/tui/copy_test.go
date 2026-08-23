@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"scx-rg/internal/preview"
 	"scx-rg/internal/search"
@@ -17,14 +17,14 @@ func TestCtrlYCopiesSelectedLine(t *testing.T) {
 	m := newContentModel(t, map[string]string{"a.txt": "first needle\nsecond needle\n"})
 	m.input.SetValue("needle")
 	triggerSearch(m)
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown}) // 选中第 2 行
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // 选中第 2 行
 	if m.results[m.sel].Line != 2 {
 		t.Fatalf("前置失败: sel line=%d", m.results[m.sel].Line)
 	}
 
 	var copied string
 	m.writeClipboard = func(s string) error { copied = s; return nil }
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlY})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
 	if want := filepath.Join(m.root, "a.txt"); copied != want {
 		t.Fatalf("非日志模式应复制绝对路径 %q, 得到 %q", want, copied)
 	}
@@ -35,7 +35,7 @@ func TestCtrlYCopiesSelectedLine(t *testing.T) {
 	// PickLine 模式（日志）复制行文本
 	m.cfg.PickLine = true
 	copied = ""
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlY})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
 	if copied != "second needle" {
 		t.Fatalf("日志模式应复制行文本, 得到 %q", copied)
 	}
@@ -46,7 +46,7 @@ func TestCtrlYNoSelectionNoop(t *testing.T) {
 	triggerSearch(m) // 空查询：内容模式无结果
 	called := false
 	m.writeClipboard = func(s string) error { called = true; return nil }
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlY})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
 	if called {
 		t.Fatal("无选中项时不应写剪贴板")
 	}
@@ -104,7 +104,7 @@ func TestBuildPagerCmd(t *testing.T) {
 func TestCtrlORequiresSelection(t *testing.T) {
 	m := newContentModel(t, map[string]string{"a.txt": "needle\n"})
 	triggerSearch(m) // 空查询无结果
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	if cmd != nil {
 		t.Fatal("无选中项 Ctrl+O 应为空操作")
 	}
