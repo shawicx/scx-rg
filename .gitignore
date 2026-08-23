@@ -4,5 +4,6 @@ scx-rg
 .idea/
 scx-rg-linux
 dist/
+RELEASE_NOTES.md
 
 .zcode
