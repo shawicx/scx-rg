@@ -2,6 +2,8 @@ package tui
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"image"
@@ -163,4 +165,40 @@ func TestGoldenImagePlaceholder(t *testing.T) {
 	m := New(Config{Root: dir, RgAvailable: false, ImgProto: preview.ProtocolNone})
 	frame := m.RenderOnce(90, 24, "", "img.png")
 	goldenFrame(t, "image_placeholder", frame)
+}
+
+// TestGoldenGitChips 筛选栏三段（git 仓库内）：Git 段可见，光标停在 Git 段
+// 的「全部」上，状态栏显示条数摘要。git 探测走注入 fake，确定性渲染。
+func TestGoldenGitChips(t *testing.T) {
+	m := goldenFilesModel(t)
+	m.cfg.GitFiles = func(context.Context, string, bool) ([]string, error) {
+		return []string{"app.go"}, nil
+	}
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
+	m.drain(m.Init())
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl}); cmd != nil {
+		m.drain(cmd) // 打开筛选栏并完成 git 探测
+	}
+	for range 2 { // 光标移到 Git 段
+		if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown}); cmd != nil {
+			m.drain(cmd)
+		}
+	}
+	goldenFrame(t, "git_chips", m.frame())
+}
+
+// TestGoldenPalette 命令面板（: 打开，默认光标在首条命令上）。
+// 默认主题、files 模式、无 git（GitFiles 未注入 → 探测真实失败也会隐藏，
+// 这里注入 fake 保证确定性）。
+func TestGoldenPalette(t *testing.T) {
+	m := goldenFilesModel(t)
+	m.cfg.GitFiles = func(context.Context, string, bool) ([]string, error) {
+		return nil, errors.New("not a repo")
+	}
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
+	m.drain(m.Init())
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: ':'}); cmd != nil {
+		m.drain(cmd)
+	}
+	goldenFrame(t, "palette", m.frame())
 }

@@ -30,6 +30,8 @@ func (m *Model) frame() string {
 	}
 	if m.helpOverlay {
 		parts = append(parts, m.helpView(), m.statusView())
+	} else if m.paletteOpen {
+		parts = append(parts, m.paletteView(), m.statusView())
 	} else {
 		parts = append(parts,
 			lipgloss.JoinHorizontal(lipgloss.Top, m.listView(), m.previewView()),

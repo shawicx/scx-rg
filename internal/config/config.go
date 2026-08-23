@@ -10,11 +10,20 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Theme 主题色（hex 字符串）。
+// Theme 主题（preset 为命名主题；其余为 hex 覆盖色，优先于 preset）。
 type Theme struct {
+	Preset    string `toml:"preset"`     // default | dracula | nord | catppuccin（空 = default）
 	Accent    string `toml:"accent"`     // 标题底色 / 激活边框 / 选中行
 	Match     string `toml:"match"`      // 命中高亮 / 输入提示符
 	RowMarker string `toml:"row_marker"` // 行标记 > ✓
+}
+
+// Editor 外部编辑器（Ctrl+E 打开选中文件到对应行）。
+// Command 为空 = 未配置，键位隐藏；Args 支持 {file} {line} 模板变量，
+// 留空时按 Command 名称套用 nvim/vim/code/emacs 预置模板。
+type Editor struct {
+	Command string   `toml:"command"`
+	Args    []string `toml:"args"`
 }
 
 // Config 用户配置；零值字段在 Load 时回退默认。
@@ -22,6 +31,7 @@ type Config struct {
 	DebounceMS int      `toml:"debounce_ms"`
 	Ignore     []string `toml:"ignore"`
 	Theme      Theme    `toml:"theme"`
+	Editor     Editor   `toml:"editor"`
 }
 
 // Default 内置默认值。
@@ -65,5 +75,6 @@ func Load(path string) Config {
 	}
 	cfg.Ignore = file.Ignore
 	cfg.Theme = file.Theme
+	cfg.Editor = file.Editor
 	return cfg
 }

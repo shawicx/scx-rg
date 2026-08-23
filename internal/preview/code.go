@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -37,6 +38,10 @@ var (
 	styleEllipsis  = lipgloss.NewStyle().Foreground(lipgloss.Color("#5B5B72"))
 	// styleHit 预览正文内命中词样式：与列表命中同色系，加下划线以叠加在语法色上
 	styleHit = lipgloss.NewStyle().Bold(true).Underline(true).Foreground(lipgloss.Color("#56C9F4"))
+	// 日志级别词样式（红=错误级 / 黄=警告级 / 暗=信息级）
+	styleLevelErr  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF5C7A"))
+	styleLevelWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB86C"))
+	styleLevelInfo = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
 )
 
 // codeLine 预览中的一行；no 为真实行号，0 表示跳过分隔行。
@@ -200,6 +205,9 @@ func renderLines(lines []codeLine, lang string, width, jump int, query string) (
 		}
 		if query != "" && l.no != 0 { // 分隔行（⋯）不做命中高亮
 			body = highlightTermANSI(body, query)
+		}
+		if l.no != 0 {
+			body = highlightLevelsANSI(body) // 日志级别词着色（与查询高亮叠加不互扰）
 		}
 		var segs []string
 		switch {
@@ -391,6 +399,70 @@ func highlightRunes(text string, q []rune, reopen string) string {
 		base = k
 	}
 	b.WriteString(string(rs[base:]))
+	return b.String()
+}
+
+// 日志级别词 → 样式（preview 包内部色，不参与 TUI 主题）。
+var logLevelStyles = map[string]lipgloss.Style{
+	"ERROR": styleLevelErr, "FATAL": styleLevelErr,
+	"PANIC": styleLevelErr, "CRITICAL": styleLevelErr,
+	"WARN": styleLevelWarn, "WARNING": styleLevelWarn,
+	"INFO": styleLevelInfo, "DEBUG": styleLevelInfo, "TRACE": styleLevelInfo,
+}
+
+// logLevelRe 全大写级别词 + 词边界：小写 error 与 informational 中的 INFO
+// 均不命中。
+var logLevelRe = regexp.MustCompile(`\b(ERROR|FATAL|PANIC|CRITICAL|WARN|WARNING|INFO|DEBUG|TRACE)\b`)
+
+// highlightLevelsANSI 在已含 ANSI 样式的行内为日志级别词着色。与
+// highlightTermANSI 同机制：只在纯文本段内匹配（不跨样式边界），命中后重开
+// 之前生效的 SGR，不截断后续语法着色。
+func highlightLevelsANSI(line string) string {
+	var b strings.Builder
+	lastSGR := ""
+	for i := 0; i < len(line); {
+		if line[i] == 0x1b {
+			end := escEnd(line, i)
+			esc := line[i:end]
+			b.WriteString(esc)
+			if isSGR(esc) {
+				lastSGR = esc
+			}
+			i = end
+			continue
+		}
+		j := i
+		for j < len(line) && line[j] != 0x1b {
+			j++
+		}
+		b.WriteString(colorizeLevels(line[i:j], lastSGR))
+		i = j
+	}
+	return b.String()
+}
+
+// colorizeLevels 在纯文本段内为级别词着色，命中后重开原 SGR。
+func colorizeLevels(text, reopen string) string {
+	locs := logLevelRe.FindAllStringIndex(text, -1)
+	if len(locs) == 0 {
+		return text
+	}
+	var b strings.Builder
+	last := 0
+	for _, loc := range locs {
+		word := text[loc[0]:loc[1]]
+		st, ok := logLevelStyles[word]
+		if !ok {
+			continue
+		}
+		b.WriteString(text[last:loc[0]])
+		b.WriteString(st.Render(word))
+		if reopen != "" {
+			b.WriteString(reopen)
+		}
+		last = loc[1]
+	}
+	b.WriteString(text[last:])
 	return b.String()
 }
 

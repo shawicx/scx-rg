@@ -70,6 +70,19 @@
 | golden frame 测试 | ✅ `internal/tui/golden_test.go`：五个确定性场景（files 过滤、finder 详情、帮助浮层、多选标记、图片占位）整帧去 ANSI 后与 `testdata/golden/*.txt` 对比；`go test ./internal/tui -update` 刷新基线；失败输出首差异 ±3 行。**顺手修复两个真 bug**：状态栏右侧提示超宽折行破坏帧高不变式（90 列终端触发）；帮助浮层双列在窄终端右列被整列截掉（改自适应单/双列） |
 | CI | ✅ build + test + vet（ubuntu/macos 矩阵）+ `--once` 冒烟 + goreleaser/git-cliff 配置检查在 M1–M4 期间已就绪；本轮补 gofmt 检查步骤 |
 
+## M6 搜索动作与 Git 基础（✅ 2026-08-23 完成）
+
+| 事项 | 状态 |
+| --- | --- |
+| 命名主题 | ✅ `[theme] preset = default\|dracula\|nord\|catppuccin`；styles.go 参数化为 palette 单一定义点，顺带收编 rangefilter/picker 游离样式（修复 ApplyTheme 换色不更新 chips 的既有隐患）；显式 hex 优先于 preset；命令面板可循环切换（会话级） |
+| 编辑器集成 | ✅ `Ctrl+E` 按 `[editor]` 模板打开选中文件到行（{file}/{line} 变量，预置 nvim/vim/emacs/code/zed 参数，未知命令回退 +行号）；tea.ExecProcess 退出自动回 TUI；Enter 契约不变 |
+| Git 筛选 chips | ✅ Ctrl+T 第三段「全部/仅改动/仅暂存」（仅 git 仓库内可见，rev-parse 探测）；files 模式 FilesProvider.Allow 枚举层过滤、content 模式 resultPasses 客户端路径过滤；gitfiles.go 可注入 Runner；gitOK 翻转动态调整筛选栏高度（panelH/帧高不变式有测试） |
+| 日志级别高亮 | ✅ 预览正文 ERROR/FATAL/PANIC/CRITICAL（红）· WARN/WARNING（黄）· INFO/DEBUG/TRACE（暗），全大写+词边界，与 chroma/查询高亮 ANSI 感知叠加 |
+| 命令面板 | ✅ `:` 空输入打开（与 ? 同和弦族）；条目：模式切换/匹配方式/筛选栏/主题循环/帮助/退出（finder 隐藏模式切换）；自带过滤词不污染主输入；帧高不变式保持 |
+| install.sh | ✅ `scripts/install.sh`：平台探测 → GitHub API 取最新 tag → 下载+sha256 校验 → 安装 /usr/local/bin（无写权限走 sudo 或 --bin 自定义目录） |
+
+golden 新增 git_chips / palette 两场景（共七个）；help 浮层新增 `:` 与 Ctrl+E 行（90x24 基线因截断线以下无变化）。
+
 ## 建议的第一周切入点（按序）
 
 1. M1 的搜索取消 + 文件模式模糊匹配（体感提升最大的两件事）

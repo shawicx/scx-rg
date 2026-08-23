@@ -34,11 +34,6 @@ type (
 	}
 )
 
-var (
-	styleStatusOK  = lipgloss.NewStyle().Foreground(colorOK)
-	styleStatusBad = lipgloss.NewStyle().Foreground(colorDim)
-)
-
 // loadPicker 异步加载源列表。
 func (m *Model) loadPicker() tea.Cmd {
 	list := m.cfg.ListSources

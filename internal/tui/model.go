@@ -58,6 +58,13 @@ type Config struct {
 	// IgnoreDirs 额外忽略的目录名（来自 config.toml 的 ignore），枚举两条路径都生效。
 	IgnoreDirs []string
 
+	// 编辑器集成（config.toml [editor]）：Command 为空时 Ctrl+E 键位隐藏。
+	EditorCommand string
+	EditorArgs    []string
+
+	// GitFiles 拉取变更文件集（Git 筛选）；nil 时调用 search 包真实 git。
+	GitFiles func(ctx context.Context, root string, staged bool) ([]string, error)
+
 	// 源选择器（scx-rg docker / scx-rg k8s 无参数进入）
 	PickerKind  string // "docker" | "kubectl"
 	SnapshotDir string // 快照落盘目录（由 main 创建与清理）
@@ -126,6 +133,12 @@ type Model struct {
 	marked map[string]bool
 	// helpOverlay：帮助浮层打开（? 空输入时 / F1），任意键关闭
 	helpOverlay bool
+	// palette：命令面板（: 空输入时打开）——过滤词独立于主输入
+	paletteOpen  bool
+	paletteQuery string
+	paletteSel   int
+	// themePreset 会话内当前命名主题（命令面板循环切换的游标与展示）
+	themePreset string
 
 	// 流式搜索状态：cancelSearch 取消当前流（杀掉 rg 进程），
 	// streamCh 供 waitForResult 消息链继续消费。
@@ -153,8 +166,8 @@ type Model struct {
 
 	// 可视化筛选栏（Ctrl+T）：客户端过滤，不重新抓取
 	rangeBar    bool             // 筛选栏打开且聚焦
-	rangeSeg    int              // 0=时间 1=条数
-	rangeSel    [2]int           // 两段的光标位置
+	rangeSeg    int              // 0=时间 1=条数 2=Git
+	rangeSel    [3]int           // 各段的光标位置
 	filterDur   time.Duration    // 时间筛选，0=全部
 	filterCap   int              // 条数封顶（保留最新 N 条），0=全部
 	raw         []search.Result  // 未过滤结果缓冲（与流式封顶一致）
@@ -162,6 +175,14 @@ type Model struct {
 	windowed    bool             // 日志模式：命中超窗，列表冻结待流结束重算为最新窗口
 	liveTicking bool             // 实时滑动窗口的 tick 链运转中
 	now         func() time.Time // 可注入时钟（测试模拟时间流逝）
+
+	// Git 筛选（Ctrl+T 第三段）：gitKnown 标记探测完成（含失败），
+	// gitOK 决定第三段是否可见
+	gitFilter  int             // 0=全部 1=仅改动 2=仅暂存
+	gitAllow   map[string]bool // 生效文件集，nil=不过滤
+	gitKnown   bool
+	gitOK      bool
+	gitLoading bool
 
 	// 源选择器状态
 	picking      bool          // 处于「选目标」阶段
@@ -197,7 +218,7 @@ func New(cfg Config) *Model {
 	ti.SetStyles(tiStyles)
 	ti.Focus()
 
-	m := &Model{cfg: cfg, root: cfg.Root, mode: cfg.Mode, input: ti}
+	m := &Model{cfg: cfg, root: cfg.Root, mode: cfg.Mode, input: ti, themePreset: "default"}
 	m.marked = map[string]bool{}
 	m.prevCache = preview.NewCache(32)
 	m.renderFile = preview.Render
@@ -260,7 +281,7 @@ func (m *Model) provider() search.Provider {
 		}
 		return nil
 	}
-	return search.FilesProvider{UseRg: m.cfg.RgAvailable, Exact: m.matchExact, IgnoreExtra: m.cfg.IgnoreDirs}
+	return search.FilesProvider{UseRg: m.cfg.RgAvailable, Exact: m.matchExact, IgnoreExtra: m.cfg.IgnoreDirs, Allow: m.gitAllow}
 }
 
 // runSearch 基于当前查询发起搜索：先取消上一轮（流式会立刻杀掉 rg 进程），
@@ -363,7 +384,7 @@ func (m *Model) stopSearch() {
 func (m *Model) panelH() int {
 	h := m.height - 4
 	if m.rangeBar {
-		h -= 2 // 筛选栏占两行
+		h -= m.rangeBarH() // 时间+条数两行，git 仓库内追加 Git 段
 	}
 	return max(0, h)
 }

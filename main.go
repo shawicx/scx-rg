@@ -62,7 +62,7 @@ func main() {
 			debounce = time.Duration(*debounceMs) * time.Millisecond
 		}
 	})
-	tui.ApplyTheme(userCfg.Theme.Accent, userCfg.Theme.Match, userCfg.Theme.RowMarker)
+	tui.ApplyTheme(userCfg.Theme.Preset, userCfg.Theme.Accent, userCfg.Theme.Match, userCfg.Theme.RowMarker)
 
 	proto := preview.ParseProtocol(*imgFlag)
 	if proto == preview.ProtocolAuto {
@@ -81,6 +81,9 @@ func main() {
 		RgAvailable: search.RgAvailable(),
 		Title:       *titleFlag,
 		IgnoreDirs:  userCfg.Ignore,
+
+		EditorCommand: userCfg.Editor.Command,
+		EditorArgs:    userCfg.Editor.Args,
 	}
 
 	switch {

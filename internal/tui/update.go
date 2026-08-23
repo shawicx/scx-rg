@@ -26,14 +26,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prevW = max(0, m.frameW()-m.listW)
 		m.input.SetWidth(max(10, m.width-16))
 
-		vpW := max(0, m.prevW-2)
-		vpH := max(0, m.panelH()-3)
-		if m.vp.Width() == 0 && m.vp.Height() == 0 {
-			m.vp = viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(vpH))
-		} else {
-			m.vp.SetWidth(vpW)
-			m.vp.SetHeight(vpH)
-		}
+		m.resizeViewport()
 		if m.prevPath != "" {
 			m.prevLoading = true
 			return m, m.followSelectionReload()
@@ -84,9 +77,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case liveTickMsg:
 		return m, m.handleLiveTick()
 
+	case gitFilesMsg:
+		m.resizeViewport() // gitOK 翻转改变筛选栏高度，面板随之重排
+		return m, m.handleGitFiles(msg)
+
 	case pagerDoneMsg:
 		if msg.err != nil {
 			m.notice = "翻页器异常退出: " + msg.err.Error()
+		}
+		return m, nil
+
+	case editorDoneMsg:
+		if msg.err != nil {
+			m.notice = "编辑器异常退出: " + msg.err.Error()
 		}
 		return m, nil
 
@@ -162,12 +165,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// resizeViewport 按当前面板尺寸重设预览 viewport（窗口变化 / 筛选栏
+// 行数变化后调用）。
+func (m *Model) resizeViewport() {
+	vpW := max(0, m.prevW-2)
+	vpH := max(0, m.panelH()-3)
+	if m.vp.Width() == 0 && m.vp.Height() == 0 {
+		m.vp = viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(vpH))
+	} else {
+		m.vp.SetWidth(vpW)
+		m.vp.SetHeight(vpH)
+	}
+}
+
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.picking {
 		return m.handlePickerKey(msg)
 	}
 	if m.rangeBar {
 		return m.handleRangeBarKey(msg)
+	}
+	// 命令面板打开时接管按键（字符过滤 / 执行 / 关闭）
+	if m.paletteOpen {
+		return m.handlePaletteKey(msg)
 	}
 	// 帮助浮层打开时按任意键关闭（Ctrl+C 仍直接退出）
 	if m.helpOverlay {
@@ -182,6 +202,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// ? 在输入为空时打开帮助（非空时作为搜索字符）；F1 总是可用
 	if msg.String() == "f1" || (msg.String() == "?" && m.input.Value() == "") {
 		m.helpOverlay = true
+		return m, nil
+	}
+	// : 在输入为空时打开命令面板（与 ? 同一空输入和弦族）
+	if msg.String() == ":" && m.input.Value() == "" {
+		m.paletteOpen = true
+		m.paletteQuery = ""
+		m.paletteSel = 0
 		return m, nil
 	}
 	switch msg.String() {
@@ -217,18 +244,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.toggleRangeBar()
 
 	case "ctrl+f":
-		// 匹配行为切换：文件模式=精确(子串)/模糊；内容与全文回退=字面量(-F)/正则
-		if m.mode == ModeContent || m.fallbackActive {
-			m.matchLiteral = !m.matchLiteral
-		} else {
-			m.matchExact = !m.matchExact
-		}
-		m.version++
-		m.followKeep = ""
-		return m, m.runSearch()
+		return m, m.applyMatchToggle()
 
 	case "ctrl+o":
 		return m, m.openInPager()
+
+	case "ctrl+e":
+		return m, m.openInEditor()
 
 	case "ctrl+y":
 		return m, m.copySelection()
@@ -237,14 +259,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.finder {
 			return m, nil // finder 模式无内容搜索概念
 		}
-		if m.mode == ModeFiles {
-			m.mode = ModeContent
-		} else {
-			m.mode = ModeFiles
-		}
-		m.updatePlaceholder()
-		m.followKeep = ""
-		return m, m.runSearch()
+		return m, m.applyModeToggle()
 
 	case "up", "ctrl+p":
 		if m.sel > 0 {

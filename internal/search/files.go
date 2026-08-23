@@ -17,10 +17,13 @@ import (
 // Exact 为 true 时要求分词以完整子串形式命中（Ctrl+F 切换），否则用模糊
 // 子序列匹配；模糊模式下散落拼凑的低质量匹配会被过滤（宁缺毋滥）。
 // IgnoreExtra 为额外忽略的目录名（来自 config），两条枚举路径都生效。
+// Allow 非空时只保留集合内的文件（Git 筛选：仅改动/仅暂存），rg 与 walk
+// 两条枚举路径都在匹配前统一过滤。
 type FilesProvider struct {
 	UseRg       bool
 	Exact       bool
 	IgnoreExtra []string
+	Allow       map[string]bool
 }
 
 func (FilesProvider) Name() string { return "files" }
@@ -35,6 +38,15 @@ func (p FilesProvider) Search(ctx context.Context, root, query string) ([]Result
 	}
 	if err != nil {
 		return nil, err
+	}
+	if len(p.Allow) > 0 {
+		kept := make([]Candidate, 0, len(candidates))
+		for _, c := range candidates {
+			if p.Allow[c.Text] {
+				kept = append(kept, c)
+			}
+		}
+		candidates = kept
 	}
 	return matchCandidates(candidates, query, p.Exact), nil
 }

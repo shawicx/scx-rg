@@ -4,18 +4,26 @@
 
 ## 安装
 
-从 [Releases](https://github.com/shawricx/scx-rg/releases) 下载对应平台的 `scx-rg_<版本>_<os>_<arch>.tar.gz`（macOS / Linux × amd64 / arm64）：
+一键安装（自动识别平台，下载最新 Release 并校验 sha256，装到 /usr/local/bin）：
 
 ```bash
-tar -xzf scx-rg_0.1.0_darwin_arm64.tar.gz
+curl -fsSL https://raw.githubusercontent.com/shawricx/scx-rg/main/scripts/install.sh | sh
+# 或装到自定义目录
+curl -fsSL https://raw.githubusercontent.com/shawricx/scx-rg/main/scripts/install.sh | sh -s -- --bin ~/.local/bin
+```
+
+或手动从 [Releases](https://github.com/shawricx/scx-rg/releases) 下载对应平台的 `scx-rg_<版本>_<os>_<arch>.tar.gz`（macOS / Linux × amd64 / arm64）：
+
+```bash
+tar -xzf scx-rg_0.0.1_darwin_arm64.tar.gz
 sudo mv scx-rg /usr/local/bin/
-scx-rg --version    # scx-rg 0.1.0 (commit …, built …, darwin/arm64)
+scx-rg --version    # scx-rg 0.0.1 (commit …, built …, darwin/arm64)
 ```
 
 建议先核对校验和（与压缩包同目录的 `scx-rg_<版本>_checksums.txt`）：
 
 ```bash
-shasum -a 256 --check scx-rg_0.1.0_checksums.txt --ignore-missing
+shasum -a 256 --check scx-rg_0.0.1_checksums.txt --ignore-missing
 ```
 
 macOS 首次运行未签名二进制若被 Gatekeeper 拦截：`xattr -d com.apple.quarantine /usr/local/bin/scx-rg`。
@@ -33,7 +41,12 @@ macOS 首次运行未签名二进制若被 Gatekeeper 拦截：`xattr -d com.app
 - **多选输出**：`Ctrl+Space` 标记/取消当前行（自动下移），`Enter` 一次输出全部标记项（多行）；`Esc` 递进清空（输入 → 标记 → 退出）
 - **帮助浮层**：输入为空时按 `?`（或 `F1`）查看按当前模式裁剪的完整键位表，任意键返回
 - **通用 finder**：`--provider stdin` 读管道候选行做模糊筛选（`Enter` 输出原行文本）；`--provider docker-ps` 内置容器列表；候选若恰是文件路径则自动获得正常预览
-- **配置文件**：`~/.config/scx-rg/config.toml` 自定义防抖、忽略目录与主题三色，见下文
+- **编辑器集成**：配置 `[editor]` 后 `Ctrl+E` 把选中文件在编辑器中打开到对应行（`{file}`/`{line}` 模板，预置 nvim/vim/code/emacs/zed 参数），编辑器退出自动返回 TUI；Enter 的 stdout 输出契约不变
+- **命令面板**：输入为空时按 `:` 打开，模糊过滤命令（模式切换/筛选栏/主题循环/帮助/退出），`↑↓` 选择 `Enter` 执行
+- **Git 筛选**：筛选栏（Ctrl+T）在 git 仓库内多出第三段「全部 / 仅改动 / 仅暂存」，文件模式在枚举层过滤、内容模式按路径过滤；未跟踪新文件不在 git diff 语义内
+- **命名主题**：`[theme] preset = default | dracula | nord | catppuccin`，也可在命令面板循环切换（会话级）；显式 hex 三色仍可覆盖 preset
+- **日志级别高亮**：预览正文内 ERROR/FATAL/PANIC（红）、WARN（黄）、INFO/DEBUG（暗）按词边界着色，与语法色/命中高亮叠加互不破坏
+- **配置文件**：`~/.config/scx-rg/config.toml` 自定义防抖、忽略目录、主题与编辑器，见下文
 
 ## Docker / Kubernetes / 服务器日志检索
 
@@ -106,7 +119,9 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 | `↑` `↓` / `Ctrl+P` `Ctrl+N` | 选择结果 |
 | `Tab` | 切换 文件/内容 模式 |
 | `Ctrl+F` | 匹配行为切换：文件模式=精确（子串）/ 模糊；内容与全文回退=字面量（-F）/ 正则 |
-| `Ctrl+T` | 打开可视化筛选栏（时间范围 / 条数封顶） |
+| `Ctrl+T` | 打开可视化筛选栏（时间范围 / 条数封顶 / git 仓库内含「仅改动/仅暂存」） |
+| `Ctrl+E` | 在编辑器打开选中文件到对应行（需配置 `[editor]`） |
+| `:` | 命令面板（输入为空时） |
 | `Ctrl+O` | 在 less 中打开当前预览文件（自由选择复制文本，`q` 返回） |
 | `Ctrl+Y` | 复制选中行（日志模式）/ 绝对路径（文件模式）到剪贴板 |
 | `PgUp` `PgDown` | 滚动预览 |
@@ -173,9 +188,20 @@ debounce_ms = 200
 ignore = ["build", ".venv"]
 
 [theme]
+# 命名主题：default | dracula | nord | catppuccin（空 = default；
+# 也可在命令面板 : 循环切换，会话级）
+preset = "default"
+# 显式 hex 三色，优先于 preset 同槽位
 accent    = "#7D56F4"  # 标题底色 / 激活边框 / 选中行
 match     = "#56C9F4"  # 命中高亮 / 输入提示符
 row_marker = "#3DDC97" # 行标记 > ✓
+
+[editor]
+# Ctrl+E 打开选中文件到对应行；command 留空 = 键位隐藏。
+# args 支持 {file}（绝对路径）与 {line} 模板变量；留空时按命令名套用
+# nvim/vim/emacs（+行号 文件）、code（--goto 文件:行）、zed（文件:行）预置。
+command = "nvim"
+args = ["+{line}", "{file}"]
 ```
 
 ## shell 集成（CTRL-T / CTRL-R）
@@ -259,7 +285,7 @@ go test ./...
 - `internal/search`：模糊匹配评分/分词语义、rg --files 的 gitignore 行为、**rg --json 事件解析纯单测**（`parseRgLine`，不依赖真实 rg、CI 恒跑）、流式搜索与取消不泄漏、walk 忽略规则（skipDirs + 隐藏目录）
 - `internal/preview`：高亮行数对齐、CJK/emoji 折行、超长单行段数封顶（maxWrapSegments）、二进制嗅探、大文件窗口化、图片三档渲染与协议探测
 - `internal/tui`：流式结果追加、过期消息丢弃、新搜索重置状态（通过 drain 驱动 cmd 链模拟事件循环）、多选/帮助/finder/清理注入
-- **golden frame 快照**（`internal/tui/golden_test.go`）：`RenderOnce`/`View` 整帧去 ANSI 后与 `internal/tui/testdata/golden/*.txt` 逐字节对比（files 过滤、finder 详情、帮助浮层、多选标记、图片占位五个场景，全部 rg-free 确定性渲染）。有意改动界面后刷新基线：
+- **golden frame 快照**（`internal/tui/golden_test.go`）：`RenderOnce`/`View` 整帧去 ANSI 后与 `internal/tui/testdata/golden/*.txt` 逐字节对比（files 过滤、finder 详情、帮助浮层、多选标记、图片占位、Git 筛选栏、命令面板七个场景，全部 rg-free 确定性渲染）。有意改动界面后刷新基线：
 
 ```bash
 go test ./internal/tui -update   # 重新生成 golden 基线，人工审查 diff 后提交

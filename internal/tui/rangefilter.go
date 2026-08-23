@@ -1,11 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"scx-rg/internal/search"
 )
@@ -36,16 +36,6 @@ var rangeCapPresets = []struct {
 	{"500条", 500},
 	{"5000条", 5000},
 }
-
-var (
-	styleChipCursor = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(colorAccent).
-			Padding(0, 1)
-	styleChipActive = lipgloss.NewStyle().Bold(true).Foreground(colorCyan).Padding(0, 1)
-	styleChipIdle   = styleDim.Padding(0, 1)
-)
 
 // lineTimeLayouts 行首时间戳的候选格式。时间.Parse 对无时区格式按 UTC 解析，
 // syslog 这类缺年份的格式解析后年份为 0，用当年补齐。
@@ -106,18 +96,40 @@ func detectResultsTs(rs []search.Result) bool {
 	return false
 }
 
-// toggleRangeBar 开/关筛选栏，切换输入焦点与预览可用高度。
+// rangeBarH 筛选栏占用行数：时间+条数两行，git 仓库内追加 Git 段。
+func (m *Model) rangeBarH() int {
+	if m.gitOK {
+		return 3
+	}
+	return 2
+}
+
+// rangeSegs 当前可见的筛选段数（Git 段仅 git 仓库内出现）。
+func (m *Model) rangeSegs() int {
+	if m.gitOK {
+		return 3
+	}
+	return 2
+}
+
+// toggleRangeBar 开/关筛选栏，切换输入焦点与预览可用高度；
+// 首次打开时探测 git 仓库（决定 Git 段可见性）。
 func (m *Model) toggleRangeBar() tea.Cmd {
 	m.rangeBar = !m.rangeBar
+	var cmds []tea.Cmd
 	if m.rangeBar {
-		m.rangeSel = [2]int{durPresetIndex(m.filterDur), capPresetIndex(m.filterCap)}
+		m.rangeSel = [3]int{durPresetIndex(m.filterDur), capPresetIndex(m.filterCap), gitPresetIndex(m.gitFilter)}
 		m.input.Blur()
+		if !m.gitKnown && !m.finder && !m.picking {
+			m.gitLoading = true
+			cmds = append(cmds, m.loadGitFiles(false))
+		}
 	} else {
 		m.input.Focus()
 	}
-	m.vp.SetWidth(max(0, m.prevW-2))
-	m.vp.SetHeight(max(0, m.panelH()-3))
-	return m.followSelectionReload() // 面板高度变化后重渲染并重新定位
+	m.resizeViewport()
+	cmds = append(cmds, m.followSelectionReload()) // 面板高度变化后重渲染并重新定位
+	return tea.Batch(cmds...)
 }
 
 func durPresetIndex(d time.Duration) int {
@@ -139,12 +151,17 @@ func capPresetIndex(n int) int {
 }
 
 // handleRangeBarKey 筛选栏聚焦时的按键：←→ 选 chip（即时生效），
-// ↑↓/Tab 切换时间/条数段，Enter/Esc/Ctrl+T 关闭。
+// ↑↓/Tab 在可见段间循环（时间/条数/Git），Enter/Esc/Ctrl+T 关闭。
 func (m *Model) handleRangeBarKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	segs := m.rangeSegs()
 	presets := len(rangeDurPresets)
-	if m.rangeSeg == 1 {
+	switch m.rangeSeg {
+	case 1:
 		presets = len(rangeCapPresets)
+	case 2:
+		presets = len(rangeGitPresets)
 	}
+	m.rangeSeg %= segs // gitOK 翻转后钳回可见段
 	switch msg.String() {
 	case "ctrl+c":
 		m.shutdown()
@@ -154,11 +171,15 @@ func (m *Model) handleRangeBarKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t", "enter", "esc":
 		return m, m.toggleRangeBar()
 	case "up", "ctrl+p":
-		m.rangeSeg = 0
+		if m.rangeSeg > 0 {
+			m.rangeSeg-- // 上一段（钳位，与旧两段语义一致）
+		}
 	case "down", "ctrl+n":
-		m.rangeSeg = 1
+		if m.rangeSeg < segs-1 {
+			m.rangeSeg++
+		}
 	case "tab":
-		m.rangeSeg = 1 - m.rangeSeg
+		m.rangeSeg = (m.rangeSeg + 1) % segs
 	case "left":
 		if m.rangeSel[m.rangeSeg] > 0 {
 			m.rangeSel[m.rangeSeg]--
@@ -173,11 +194,15 @@ func (m *Model) handleRangeBarKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// rangeChipApply 把光标处的预设设为生效值并重算列表；
-// 跟随模式下时间筛选激活时启动实时滑动窗口的 tick 链。
+// rangeChipApply 把光标处的预设设为生效值并重算列表；Git 段切换走
+// applyGitFilter（异步拉文件集）；跟随模式下时间筛选激活时启动实时滑窗
+// 的 tick 链。
 func (m *Model) rangeChipApply() tea.Cmd {
 	m.filterDur = rangeDurPresets[m.rangeSel[0]].d
 	m.filterCap = rangeCapPresets[m.rangeSel[1]].n
+	if git := rangeGitPresets[m.rangeSel[2]].n; git != m.gitFilter {
+		return m.applyGitFilter(git)
+	}
 	cmd := m.refilter(true)
 	if m.needsLiveTick() && !m.liveTicking && !m.onceMode {
 		m.liveTicking = true
@@ -217,9 +242,12 @@ func (m *Model) handleLiveTick() tea.Cmd {
 	return tea.Batch(next, m.refilter(true))
 }
 
-// resultPasses 时间筛选只丢弃「带时间戳且早于范围」的行；
-// 无时间戳的行（多行堆栈的续行等）保留。
+// resultPasses 客户端过滤：Git 筛选按路径，时间筛选只丢弃「带时间戳且
+// 早于范围」的行；无时间戳的行（多行堆栈的续行等）保留。
 func (m *Model) resultPasses(r search.Result) bool {
+	if !m.gitAllowsPath(r.Path) {
+		return false
+	}
 	if m.filterDur > 0 && m.tsOK {
 		if ts, ok := parseLineTime(r.Text); ok && m.nowFunc().Sub(ts) > m.filterDur {
 			return false
@@ -287,12 +315,26 @@ func (m *Model) rangeBarView() string {
 	if !m.tsOK {
 		rowDur += styleDim.Render(" / 未检测到时间戳")
 	}
+	rows := ansiTruncate(" "+rowDur, m.frameW())
 	rowCap := stylePanelTitle.Render("条数")
 	for i, p := range rangeCapPresets {
 		rowCap += " " + renderChip(p.label, m.rangeSeg == 1 && i == m.rangeSel[1], m.filterCap == p.n)
 	}
-	return styleStatus.Width(m.frameW()).Render(
-		ansiTruncate(" "+rowDur, m.frameW()) + "\n" + ansiTruncate(" "+rowCap, m.frameW()))
+	rows += "\n" + ansiTruncate(" "+rowCap, m.frameW())
+	if m.gitOK {
+		rowGit := stylePanelTitle.Render("Git")
+		for i, p := range rangeGitPresets {
+			rowGit += " " + renderChip(p.label, m.rangeSeg == 2 && i == m.rangeSel[2], m.gitFilter == p.n)
+		}
+		switch {
+		case m.gitLoading:
+			rowGit += styleSearching.Render(" * 加载中")
+		case m.gitFilter > 0:
+			rowGit += styleDim.Render(fmt.Sprintf(" %d 文件", len(m.gitAllow)))
+		}
+		rows += "\n" + ansiTruncate(" "+rowGit, m.frameW())
+	}
+	return styleStatus.Width(m.frameW()).Render(rows)
 }
 
 func renderChip(label string, cursor, active bool) string {
@@ -314,6 +356,9 @@ func (m *Model) filterStatus() string {
 	}
 	if m.filterCap > 0 {
 		s += " / 末" + rangeCapLabel(m.filterCap)
+	}
+	if m.gitFilter > 0 {
+		s += " / " + rangeGitPresets[gitPresetIndex(m.gitFilter)].label
 	}
 	return s
 }

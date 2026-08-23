@@ -56,18 +56,27 @@ func (m *Model) helpGroups() []helpGroup {
 			},
 		},
 	)
+	if m.cfg.EditorCommand != "" {
+		groups = append(groups, helpGroup{
+			title: "动作",
+			rows: [][2]string{
+				{"Ctrl+E", "在编辑器打开选中文件到对应行"},
+			},
+		})
+	}
 	if m.following() || m.mode == ModeContent {
 		groups = append(groups, helpGroup{
 			title: "筛选（日志/跟随）",
 			rows: [][2]string{
 				{"Ctrl+T", "打开 / 关闭结果筛选栏"},
-				{"↑ ↓ Tab", "筛选栏内切段移动"},
+				{"↑ ↓ Tab", "筛选栏内切段移动（时间/条数/Git）"},
 			},
 		})
 	}
 	groups = append(groups, helpGroup{
 		title: "其他",
 		rows: [][2]string{
+			{":", "命令面板（输入为空时）"},
 			{"?", "本帮助（输入为空时）· F1 任何时候"},
 			{"Ctrl+C", "退出"},
 		},

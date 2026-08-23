@@ -303,3 +303,54 @@ func TestRenderCodeChinesePath(t *testing.T) {
 		t.Fatalf("内容应包含中文标识符:\n%s", ren.Content)
 	}
 }
+
+// TestLogLevelHighlight 预览正文内日志级别词着色：全大写+词边界命中，
+// 小写与词内嵌套不误伤；与查询高亮可叠加。
+func TestLogLevelHighlight(t *testing.T) {
+	dir := t.TempDir()
+	src := "2026-08-23 10:00:00 ERROR connection lost\n2026-08-23 10:00:01 error lowercase untouched\ninformational line here\nWARN careful\nDEBUG detail\n"
+	p := filepath.Join(dir, "app.log")
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ren, err := Render(p, 80, 24, ProtocolNone, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ren.Content, styleLevelErr.Render("ERROR")) {
+		t.Error("ERROR 应被错误级样式包裹")
+	}
+	if !strings.Contains(ren.Content, styleLevelWarn.Render("WARN")) {
+		t.Error("WARN 应被警告级样式包裹")
+	}
+	if !strings.Contains(ren.Content, styleLevelInfo.Render("DEBUG")) {
+		t.Error("DEBUG 应被信息级样式包裹")
+	}
+	// 小写 error 不着色
+	if strings.Contains(ren.Content, styleLevelErr.Render("error")) {
+		t.Error("小写 error 不应着色")
+	}
+	// informational 中的 INFO 因词边界不命中
+	if strings.Contains(ren.Content, styleLevelInfo.Render("INFO")) {
+		t.Error("informational 内的 INFO 不应着色")
+	}
+}
+
+// TestLogLevelHighlightWithQuery 级别着色与查询高亮叠加：各自 ANSI 感知互不破坏。
+func TestLogLevelHighlightWithQuery(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "app.log")
+	if err := os.WriteFile(p, []byte("ERROR lost connection\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ren, err := Render(p, 80, 24, ProtocolNone, 0, "lost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ren.Content, styleLevelErr.Render("ERROR")) {
+		t.Error("ERROR 着色应保留")
+	}
+	if !strings.Contains(ren.Content, styleHit.Render("lost")) {
+		t.Error("查询词高亮应保留")
+	}
+}
