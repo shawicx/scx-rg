@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -57,8 +56,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tsOK = detectResultsTs(m.raw)
 		cmd := m.refilter(false)
 		// 文件名零命中且查询非空：自动回退全文搜索，用户不再需要记 Tab
-		// （时间筛选可能清空列表，不作为回退依据）
-		if m.mode == ModeFiles && len(m.results) == 0 && msg.err == nil &&
+		// （时间筛选可能清空列表，不作为回退；finder 是静态候选，无全文概念）
+		if m.mode == ModeFiles && !m.finder && len(m.results) == 0 && msg.err == nil &&
 			!(m.filterDur > 0 && m.tsOK) &&
 			strings.TrimSpace(m.input.Value()) != "" && m.cfg.RgAvailable {
 			return m, m.startFallbackStream()
@@ -170,6 +169,21 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.rangeBar {
 		return m.handleRangeBarKey(msg)
 	}
+	// 帮助浮层打开时按任意键关闭（Ctrl+C 仍直接退出）
+	if m.helpOverlay {
+		if msg.Type == tea.KeyCtrlC {
+			m.shutdown()
+			m.picked = ""
+			return m, tea.Quit
+		}
+		m.helpOverlay = false
+		return m, nil
+	}
+	// ? 在输入为空时打开帮助（非空时作为搜索字符）；F1 总是可用
+	if msg.Type == tea.KeyF1 || (msg.String() == "?" && m.input.Value() == "") {
+		m.helpOverlay = true
+		return m, nil
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		m.shutdown() // 退出前杀掉可能仍在跑的 rg / 跟随进程
@@ -178,13 +192,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyEnter:
 		m.shutdown()
-		if len(m.results) > 0 && m.sel < len(m.results) {
-			if m.cfg.PickLine {
-				m.picked = m.results[m.sel].Text
-			} else {
-				m.picked = filepath.Join(m.root, m.results[m.sel].Path)
-			}
-		}
+		m.picked = m.pickedOutput()
 		return m, tea.Quit
 
 	case tea.KeyEsc:
@@ -194,8 +202,16 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.followKeep = ""
 			return m, tickDebounce(m.version, m.cfg.Debounce)
 		}
+		if len(m.marked) > 0 { // 递进退出：先清标记，再按才退出
+			m.marked = map[string]bool{}
+			m.notice = "已清空标记"
+			return m, nil
+		}
 		m.shutdown()
 		return m, tea.Quit
+
+	case tea.KeyCtrlAt: // Ctrl+Space：多数终端发送 NUL(0x00)，bubbletea 识别为 ctrl+@
+		return m, m.toggleMark()
 
 	case tea.KeyCtrlT:
 		return m, m.toggleRangeBar()
@@ -218,6 +234,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.copySelection()
 
 	case tea.KeyTab:
+		if m.finder {
+			return m, nil // finder 模式无内容搜索概念
+		}
 		if m.mode == ModeFiles {
 			m.mode = ModeContent
 		} else {

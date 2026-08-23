@@ -20,10 +20,14 @@ func (m *Model) View() string {
 	if m.rangeBar {
 		parts = append(parts, m.rangeBarView())
 	}
-	parts = append(parts,
-		lipgloss.JoinHorizontal(lipgloss.Top, m.listView(), m.previewView()),
-		m.statusView(),
-	)
+	if m.helpOverlay {
+		parts = append(parts, m.helpView(), m.statusView())
+	} else {
+		parts = append(parts,
+			lipgloss.JoinHorizontal(lipgloss.Top, m.listView(), m.previewView()),
+			m.statusView(),
+		)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
@@ -63,7 +67,11 @@ func (m *Model) listView() string {
 		case m.fallbackActive:
 			hint = "文件名与全文均无匹配"
 		case m.mode == ModeFiles && m.input.Value() != "":
-			hint = "文件名无匹配 / Tab 切内容模式搜全文"
+			if m.finder {
+				hint = "无匹配候选"
+			} else {
+				hint = "文件名无匹配 / Tab 切内容模式搜全文"
+			}
 		}
 		rows = append(rows, centerLine(hint, w, stylePlaceholder))
 	} else {
@@ -89,6 +97,9 @@ func (m *Model) resultRow(i, w int) string {
 	marker := "  "
 	if i == m.sel {
 		marker = styleRowMarker.Render("> ")
+	}
+	if m.marked[resultKey(r)] {
+		marker = styleRowMarker.Render("✓ ") // 标记态优先于选中指针
 	}
 	var body string
 	if m.mode == ModeFiles && !m.fallbackActive {
@@ -142,6 +153,9 @@ func highlightRunes(s string, pos []int) string {
 
 func (m *Model) previewView() string {
 	title := stylePanelTitle.Render("预览")
+	if m.finder {
+		title = stylePanelTitle.Render("详情")
+	}
 	body := m.vp.View()
 	if m.picking {
 		title = stylePanelTitle.Render("详情")
@@ -154,14 +168,18 @@ func (m *Model) previewView() string {
 	case m.prevLoading:
 		body = stylePlaceholder.Render("加载预览...")
 	case m.prevPath == "":
-		hint := stylePlaceholder.Render("选中左侧结果后在此预览")
+		hint := "选中左侧结果后在此预览"
+		if m.finder {
+			hint = "选中左侧候选查看详情"
+		}
+		hintText := stylePlaceholder.Render(hint)
 		if m.imgActive {
 			// 预览被清空（新搜索/无结果）：overlay 图形只能借渲染流送出删除
 			// 序列——缀在提示文本前（零宽不可见）。标志就地消费，只发一次。
-			hint = preview.KittyDeleteImage + hint
+			hintText = preview.KittyDeleteImage + hintText
 			m.imgActive = false
 		}
-		body = hint
+		body = hintText
 	}
 	if m.prevPath != "" {
 		title += " " + styleDim.Render(m.prevPath)
@@ -194,7 +212,16 @@ func (m *Model) statusView() string {
 	}
 	var badge string
 	literalOn := m.matchLiteral && (m.mode == ModeContent || m.fallbackActive)
-	if m.mode == ModeFiles {
+	if m.finder {
+		name := m.cfg.FinderName
+		if name == "" {
+			name = "finder"
+		}
+		badge = styleBadgeFiles.Render(name)
+		if m.matchExact {
+			badge += " " + styleBadgeContent.Render("精确")
+		}
+	} else if m.mode == ModeFiles {
 		badge = styleBadgeFiles.Render("文件")
 		if m.matchExact && !m.fallbackActive {
 			badge += " " + styleBadgeContent.Render("精确")
@@ -210,6 +237,9 @@ func (m *Model) statusView() string {
 		left += styleSearching.Render("* 搜索中") + " / "
 	}
 	left += fmt.Sprintf("%d 项", len(m.results))
+	if n := m.markedCount(); n > 0 {
+		left += " " + styleBadgeContent.Render(fmt.Sprintf("已标记 %d", n))
+	}
 	left += m.filterStatus()
 	left += m.followStatus()
 	if m.notice != "" {
@@ -218,7 +248,10 @@ func (m *Model) statusView() string {
 	if m.searchErr != nil {
 		left += " / " + styleErrText.Render(m.searchErr.Error())
 	}
-	right := "Ctrl+O 翻页复制 / Ctrl+Y 复制行 / Ctrl+T 筛选 / Ctrl+F 匹配 / Enter 选定 / Esc 清空"
+	right := "? 帮助 / Ctrl+O 翻页复制 / Ctrl+Y 复制行 / Ctrl+T 筛选 / Ctrl+F 匹配 / Enter 选定 / Esc 清空"
+	if m.finder {
+		right = "? 帮助 / Ctrl+Space 标记 / Ctrl+F 匹配 / Enter 输出 / Esc 清空"
+	}
 	pad := m.frameW() - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad > 0 {
 		left += strings.Repeat(" ", pad)

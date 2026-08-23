@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -8,10 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/term"
 
+	"scx-rg/internal/config"
 	"scx-rg/internal/logs"
 	"scx-rg/internal/preview"
 	"scx-rg/internal/search"
@@ -27,18 +31,19 @@ func main() {
 		return
 	}
 	var (
-		pathFlag    = flag.String("path", ".", "搜索根目录；配合 --follow 可指向单个日志文件")
-		modeFlag    = flag.String("mode", "files", "初始模式: files | content")
-		imgFlag     = flag.String("img", "auto", "图片协议: auto | kitty | sixel | halfblock | none")
-		debounceMs  = flag.Int("debounce-ms", 200, "搜索防抖间隔（毫秒）")
-		titleFlag   = flag.String("title", "", "头部标题（如 docker:web）")
-		followFlag  = flag.Bool("follow", false, "跟随 -path 指定的单个日志文件，实时刷新（tail -f 式）")
-		once        = flag.Bool("once", false, "渲染一帧后退出（调试用，不进备用屏）")
-		onceW       = flag.Int("w", 120, "--once 渲染宽度")
-		onceH       = flag.Int("h", 40, "--once 渲染高度")
-		onceQuery   = flag.String("q", "", "--once 模拟输入的搜索词")
-		oncePreview = flag.String("preview-file", "", "--once 强制预览指定文件")
-		versionFlag = flag.Bool("version", false, "输出版本信息并退出")
+		pathFlag     = flag.String("path", ".", "搜索根目录；配合 --follow 可指向单个日志文件")
+		modeFlag     = flag.String("mode", "files", "初始模式: files | content")
+		imgFlag      = flag.String("img", "auto", "图片协议: auto | kitty | sixel | halfblock | none")
+		providerFlag = flag.String("provider", "", "候选来源: stdin | docker-ps（管道候选取代文件搜索，Enter 输出选中行）")
+		debounceMs   = flag.Int("debounce-ms", 200, "搜索防抖间隔（毫秒）")
+		titleFlag    = flag.String("title", "", "头部标题（如 docker:web）")
+		followFlag   = flag.Bool("follow", false, "跟随 -path 指定的单个日志文件，实时刷新（tail -f 式）")
+		once         = flag.Bool("once", false, "渲染一帧后退出（调试用，不进备用屏）")
+		onceW        = flag.Int("w", 120, "--once 渲染宽度")
+		onceH        = flag.Int("h", 40, "--once 渲染高度")
+		onceQuery    = flag.String("q", "", "--once 模拟输入的搜索词")
+		oncePreview  = flag.String("preview-file", "", "--once 强制预览指定文件")
+		versionFlag  = flag.Bool("version", false, "输出版本信息并退出")
 	)
 	flag.Parse()
 
@@ -46,6 +51,17 @@ func main() {
 		fmt.Printf("scx-rg %s (commit %s, built %s, %s/%s)\n", version, commit, date, runtime.GOOS, runtime.GOARCH)
 		return
 	}
+
+	// 配置文件 ~/.config/scx-rg/config.toml：未配置/损坏回退默认，不阻断启动。
+	// 优先级：flag 显式设置 > config.toml > 内置默认。
+	userCfg := config.Load("")
+	debounce := time.Duration(userCfg.DebounceMS) * time.Millisecond
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "debounce-ms" {
+			debounce = time.Duration(*debounceMs) * time.Millisecond
+		}
+	})
+	tui.ApplyTheme(userCfg.Theme.Accent, userCfg.Theme.Match, userCfg.Theme.RowMarker)
 
 	proto := preview.ParseProtocol(*imgFlag)
 	if proto == preview.ProtocolAuto {
@@ -59,13 +75,25 @@ func main() {
 
 	cfg := tui.Config{
 		Mode:        mode,
-		Debounce:    time.Duration(*debounceMs) * time.Millisecond,
+		Debounce:    debounce,
 		ImgProto:    proto,
 		RgAvailable: search.RgAvailable(),
 		Title:       *titleFlag,
+		IgnoreDirs:  userCfg.Ignore,
 	}
 
-	if *followFlag {
+	switch {
+	case *providerFlag != "":
+		cands, name, err := loadCandidates(*providerFlag)
+		if err != nil {
+			die(err)
+		}
+		cfg.Candidates = cands
+		cfg.FinderName = name
+		cfg.PickLine = true // Enter 输出原行文本
+		cfg.Title = name
+
+	case *followFlag:
 		p := *pathFlag
 		if rest := flag.Args(); len(rest) > 0 {
 			p = rest[0] // 支持 --follow /var/log/app.log 的直觉写法
@@ -83,7 +111,7 @@ func main() {
 		cfg.Title = filepath.Base(abs)
 		cfg.PickLine = true
 		cfg.Mode = tui.ModeContent
-	} else {
+	default:
 		root, err := filepath.Abs(*pathFlag)
 		if err != nil {
 			die(err)
@@ -128,6 +156,62 @@ func clearKittyGraphics(proto preview.Protocol) {
 	if proto == preview.ProtocolKitty {
 		fmt.Fprint(os.Stdout, preview.KittyDeleteAll)
 	}
+}
+
+// loadCandidates 解析 --provider 预设数据源为静态候选列表。
+func loadCandidates(name string) ([]search.Candidate, string, error) {
+	switch name {
+	case "stdin":
+		cands, err := readStdinCandidates()
+		if err != nil {
+			return nil, "", err
+		}
+		return cands, "stdin", nil
+	case "docker-ps":
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srcs, err := logs.ListSources(ctx, nil, "docker")
+		if err != nil {
+			return nil, "", fmt.Errorf("docker 容器列表获取失败: %w", err)
+		}
+		cands := make([]search.Candidate, 0, len(srcs))
+		for _, s := range srcs {
+			detail := s.Detail
+			if s.Status != "" {
+				detail = strings.TrimSpace(detail + " · " + s.Status)
+			}
+			cands = append(cands, search.Candidate{Text: s.Target.Name, Detail: detail})
+		}
+		return cands, "docker", nil
+	}
+	return nil, "", fmt.Errorf("未知 --provider %q（支持: stdin | docker-ps）", name)
+}
+
+// readStdinCandidates 读管道输入的候选行（每行一条，跳过空行）。
+func readStdinCandidates() ([]search.Candidate, error) {
+	if term.IsTerminal(os.Stdin.Fd()) {
+		return nil, errors.New("--provider stdin 需要管道输入，如: fd --type f | scx-rg --provider stdin")
+	}
+	sc := bufio.NewScanner(os.Stdin)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	var out []search.Candidate
+	for sc.Scan() {
+		line := sc.Text()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		out = append(out, search.Candidate{Text: line})
+		if len(out) >= 100000 {
+			break // 防御性上限：与日志 tail 同量级
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("读取 stdin 失败: %w", err)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("stdin 无候选行")
+	}
+	return out, nil
 }
 
 // runLogSource docker/k8s 子命令：默认持续跟随新日志（tail -f 式，

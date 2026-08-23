@@ -44,14 +44,21 @@
 - SSH 场景环境变量不透传，本地 kitty 会被探测为 halfblock，可 `--img kitty` 强制
 - kitty overlay 与文本滚动的完全同步需独立渲染层，维持 backlog
 
-## M4 交互与扩展（渐进）
+## M4 交互与扩展（✅ 2026-08-23 完成）
 
-- `?` 帮助浮层（完整键位表）
-- 多选（`Mark` 键 + Enter 输出多行路径）
-- stdin Provider：`scx-rg --provider stdin` 读候选，向通用 finder 演进的第一步
-- 预设 Provider：git 分支、docker ps、历史命令等
-- 配置文件 `~/.config/scx-rg/config.toml`：主题色、防抖时长、忽略规则
-- zsh/fish 集成示例（CTRL-T 唤起）
+| 事项 | 状态 |
+| --- | --- |
+| `?` 帮助浮层 | ✅ 输入为空时按 `?` 或 `F1` 打开，任意键关闭；键位表按模式（文件/内容/finder/日志）裁剪；帧高不变式有测试 |
+| 多选 | ✅ `Ctrl+Space` 标记/取消并下移（bubbletea 识别为 ctrl+@）；`Enter` 按列表顺序输出全部标记项（多行）；`Esc` 递进（输入→标记→退出）；标记 key 用 path:line 防筛选错位；`✓` 前缀 + 状态栏计数 |
+| stdin Provider | ✅ `--provider stdin` 读管道候选行（非管道 stdin 报用法；上限 10 万行），复用 files 模式整套模糊语义（matchCandidates 抽取共用）；候选是真实文件路径时自动获得正常预览，否则显示详情面板；Tab/fallback 禁用 |
+| 预设 Provider | ✅ `--provider docker-ps`（复用 logs.ListSources，镜像·状态做详情）；git 分支/shell 历史未内置——经 stdin 管道达成（见 examples 的 CTRL-R） |
+| 配置文件 | ✅ `~/.config/scx-rg/config.toml`（BurntSushi/toml）：`debounce_ms` / `ignore`（rg `-g` + walk 双路径生效）/ `[theme]` accent·match·row_marker 三色（ApplyTheme 重设样式）；优先级 flag > config > 默认；坏文件回退默认不阻断 |
+| shell 集成 | ✅ `examples/scx-rg.zsh`（zsh -n 校验）与 `examples/scx-rg.fish`：CTRL-T 文件插入、CTRL-R 历史搜索 |
+
+附带修复/决策：
+- `Result.Text` 现由文件/候选枚举统一填充——顺带修正了 finder 模式 Ctrl+Y 复制为空的问题
+- 主题样式收敛到 `initStyles()` 单一定义点，ApplyTheme 换色后全局重建
+- config.toml 的 ignore 同时传给 `rg -g '!dir/'` 与内置遍历
 
 ## M5 工程质量（随 M1 同步启动，不后置）
 

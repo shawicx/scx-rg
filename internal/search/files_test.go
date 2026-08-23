@@ -50,13 +50,22 @@ func TestListFilesRespectsGitignoreAndHidden(t *testing.T) {
 		".hidden.txt":       "",
 		"node_modules/x.js": "",
 	}, true)
-	got, err := ListFiles(context.Background(), dir)
+	got, err := ListFiles(context.Background(), dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"a.go"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("rg --files 枚举 = %v, 期望 %v（应尊重 .gitignore 且排除隐藏目录）", got, want)
+	if want := []string{"a.go"}; !reflect.DeepEqual(candidateTexts(got), want) {
+		t.Fatalf("rg --files 枚举 = %v, 期望 %v（应尊重 .gitignore 且排除隐藏目录）", candidateTexts(got), want)
 	}
+}
+
+// candidateTexts 提取候选文本，便于与字符串切片断言。
+func candidateTexts(cs []Candidate) []string {
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = c.Text
+	}
+	return out
 }
 
 // rg 遍历中遇到个别不可读目录（macOS 隐私保护目录报 Operation not permitted）
@@ -79,12 +88,12 @@ func TestListFilesToleratesUnreadableSubdir(t *testing.T) {
 	}
 	defer os.Chmod(locked, 0o755) //nolint:errcheck // 恢复权限以便 t.TempDir 清理
 
-	got, err := ListFiles(context.Background(), dir)
+	got, err := ListFiles(context.Background(), dir, nil)
 	if err != nil {
 		t.Fatalf("个别目录不可读不应整体失败: %v", err)
 	}
-	if want := []string{"a.txt"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("枚举 = %v, 期望 %v", got, want)
+	if want := []string{"a.txt"}; !reflect.DeepEqual(candidateTexts(got), want) {
+		t.Fatalf("枚举 = %v, 期望 %v", candidateTexts(got), want)
 	}
 }
 

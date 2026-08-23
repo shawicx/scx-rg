@@ -50,6 +50,14 @@ type Config struct {
 	// FollowFile 非空时进入跟随模式：轮询该文件增长并自动刷新当前查询（tail -f 式）。
 	FollowFile string
 
+	// Candidates 非空进入 finder 模式（--provider stdin / docker-ps）：
+	// 候选行本地模糊过滤，Enter 输出原行文本（应同时设 PickLine）。
+	Candidates []search.Candidate
+	// FinderName finder 模式来源标签（如 "stdin" / "docker"），状态栏显示。
+	FinderName string
+	// IgnoreDirs 额外忽略的目录名（来自 config.toml 的 ignore），枚举两条路径都生效。
+	IgnoreDirs []string
+
 	// 源选择器（scx-rg docker / scx-rg k8s 无参数进入）
 	PickerKind  string // "docker" | "kubectl"
 	SnapshotDir string // 快照落盘目录（由 main 创建与清理）
@@ -110,6 +118,14 @@ type Model struct {
 	searchErr error
 	// fallbackActive：文件模式无命中后自动切换到全文搜索结果展示
 	fallbackActive bool
+	// finder：静态候选模式（--provider stdin / docker-ps），Tab 切模式禁用，
+	// Enter 输出原行文本
+	finder bool
+	// marked：Ctrl+Space 标记的多选项（key = resultKey，path:line），
+	// Enter 时输出全部标记项；Esc 在输入清空后先清标记
+	marked map[string]bool
+	// helpOverlay：帮助浮层打开（? 空输入时 / F1），任意键关闭
+	helpOverlay bool
 
 	// 流式搜索状态：cancelSearch 取消当前流（杀掉 rg 进程），
 	// streamCh 供 waitForResult 消息链继续消费。
@@ -179,8 +195,13 @@ func New(cfg Config) *Model {
 	ti.Focus()
 
 	m := &Model{cfg: cfg, root: cfg.Root, mode: cfg.Mode, input: ti}
+	m.marked = map[string]bool{}
 	m.prevCache = preview.NewCache(32)
 	m.renderFile = preview.Render
+	if len(cfg.Candidates) > 0 {
+		m.finder = true
+		m.mode = ModeFiles // 列表行为与文件模式一致；Tab 已禁用
+	}
 	if m.mode == ModeContent && !cfg.RgAvailable && cfg.PickerKind == "" {
 		m.mode = ModeFiles
 	}
@@ -227,13 +248,16 @@ func (m *Model) nowFunc() time.Time {
 }
 
 func (m *Model) provider() search.Provider {
+	if m.finder {
+		return search.ListProvider{Candidates: m.cfg.Candidates, Exact: m.matchExact}
+	}
 	if m.mode == ModeContent {
 		if m.cfg.RgAvailable {
 			return search.RipgrepProvider{}
 		}
 		return nil
 	}
-	return search.FilesProvider{UseRg: m.cfg.RgAvailable, Exact: m.matchExact}
+	return search.FilesProvider{UseRg: m.cfg.RgAvailable, Exact: m.matchExact, IgnoreExtra: m.cfg.IgnoreDirs}
 }
 
 // runSearch 基于当前查询发起搜索：先取消上一轮（流式会立刻杀掉 rg 进程），
@@ -363,7 +387,7 @@ func (m *Model) adjustOffset() {
 // 先查渲染缓存，命中则同步应用；未命中异步渲染并在成功后写回缓存。
 func (m *Model) followSelection() tea.Cmd {
 	if len(m.results) == 0 || m.sel >= len(m.results) {
-		m.vp.SetContent("")
+		m.setPreviewContent("")
 		m.prevPath = ""
 		return nil
 	}
@@ -376,12 +400,27 @@ func (m *Model) followSelection() tea.Cmd {
 	m.prevPath = r.Path
 	m.prevJump = r.Line
 	m.prevLoading = true
+	if m.finder {
+		if abs := m.finderPath(r.Path); abs != "" {
+			// 候选恰是存在的文件路径（fd | scx-rg --provider stdin 场景）：正常预览
+			return m.renderSelectionPreview(r, abs)
+		}
+		// 普通候选行：同步显示详情面板（纯文本无 IO，无需异步与缓存）
+		m.prevLoading = false
+		m.setPreviewContent(finderDetail(r))
+		m.vp.GotoTop()
+		return nil
+	}
+	return m.renderSelectionPreview(r, filepath.Join(m.root, r.Path))
+}
+
+// renderSelectionPreview 渲染 abs 指向的文件预览（含缓存查询与异步渲染）。
+func (m *Model) renderSelectionPreview(r search.Result, abs string) tea.Cmd {
 	cols, rows := m.previewSize()
 	proto := m.cfg.ImgProto
 	jump := r.Line
-	abs := filepath.Join(m.root, r.Path)
 	query := ""
-	if m.cfg.Mode == ModeContent {
+	if m.cfg.Mode == ModeContent && !m.finder {
 		query = m.input.Value() // 内容模式：预览正文内高亮命中词
 	}
 	if ren, ok := m.prevCache.Get(abs, cols, rows, proto, jump, query); ok {
@@ -397,6 +436,80 @@ func (m *Model) followSelection() tea.Cmd {
 		}
 		return previewMsg{path: r.Path, rendered: ren, err: err}
 	}
+}
+
+// finderPath finder 候选若指向真实文件则返回其路径，否则空串。
+func (m *Model) finderPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	abs := p
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(m.root, abs)
+	}
+	if st, err := os.Stat(abs); err == nil && !st.IsDir() {
+		return abs
+	}
+	return ""
+}
+
+// finderDetail finder 候选行的详情面板内容。
+func finderDetail(r search.Result) string {
+	b := strings.Builder{}
+	b.WriteString("候选行\n\n")
+	b.WriteString(r.Path)
+	if r.Detail != "" {
+		b.WriteString("\n\n" + r.Detail)
+	}
+	return b.String()
+}
+
+// toggleMark 标记/取消当前选中行并下移一格（fzf 习惯）。
+func (m *Model) toggleMark() tea.Cmd {
+	if len(m.results) == 0 || m.sel >= len(m.results) {
+		return nil
+	}
+	k := resultKey(m.results[m.sel])
+	if m.marked[k] {
+		delete(m.marked, k)
+	} else {
+		m.marked[k] = true
+	}
+	if m.sel < len(m.results)-1 {
+		m.sel++
+		m.adjustOffset()
+		return m.followSelection()
+	}
+	return nil
+}
+
+// pickedOutput Enter 的输出：有标记则按当前列表顺序输出全部标记项
+// （已被过滤掉的标记跳过；全部失效时退回当前选中），否则输出当前选中。
+func (m *Model) pickedOutput() string {
+	if len(m.marked) > 0 {
+		var picked []string
+		for _, r := range m.results {
+			if m.marked[resultKey(r)] {
+				picked = append(picked, m.pickText(r))
+			}
+		}
+		if len(picked) > 0 {
+			return strings.Join(picked, "\n")
+		}
+	}
+	if len(m.results) > 0 && m.sel < len(m.results) {
+		return m.pickText(m.results[m.sel])
+	}
+	return ""
+}
+
+// pickText 单条结果的输出文本：PickLine 输出原行文本（finder / 日志），
+// 否则输出绝对路径。
+func (m *Model) pickText(r search.Result) string {
+	if m.cfg.PickLine {
+		return r.Text
+	}
+	return filepath.Join(m.root, r.Path)
 }
 
 // setPreviewContent 预览内容的统一入口：从 kitty 图形切到非图形内容时注入

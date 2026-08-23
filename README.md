@@ -30,6 +30,10 @@ macOS 首次运行未签名二进制若被 Gatekeeper 拦截：`xattr -d com.app
   - 代码：chroma 语法高亮 + 行号槽，内容模式自动跳转到匹配行
   - 图片：三档渲染——kitty 图形协议 / sixel 协议直接在终端内显示，均不可用时降级 halfblock（`▀` 半块字符 + truecolor/256 色，任何彩色终端可用）；GIF 显示首帧
 - **fzf 式工作流**：`Enter` 退出并把选中文件绝对路径打印到 stdout，可接管道
+- **多选输出**：`Ctrl+Space` 标记/取消当前行（自动下移），`Enter` 一次输出全部标记项（多行）；`Esc` 递进清空（输入 → 标记 → 退出）
+- **帮助浮层**：输入为空时按 `?`（或 `F1`）查看按当前模式裁剪的完整键位表，任意键返回
+- **通用 finder**：`--provider stdin` 读管道候选行做模糊筛选（`Enter` 输出原行文本）；`--provider docker-ps` 内置容器列表；候选若恰是文件路径则自动获得正常预览
+- **配置文件**：`~/.config/scx-rg/config.toml` 自定义防抖、忽略目录与主题三色，见下文
 
 ## Docker / Kubernetes / 服务器日志检索
 
@@ -137,12 +141,50 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 -path string    搜索根目录（默认 .）
 -mode string    files | content（默认 files）
 -img string     auto | kitty | sixel | halfblock | none（默认 auto，自动探测：环境变量 → DA1 查询 → halfblock 兜底）
--debounce-ms    搜索防抖间隔（默认 200）
+-provider string stdin | docker-ps（管道/容器候选取代文件搜索，Enter 输出原行文本）
+-debounce-ms    搜索防抖间隔（默认 200，可被 config.toml 覆盖）
 -version        输出版本信息并退出
 -once           渲染一帧后退出（调试/CI 冒烟）
 -q string       配合 --once 模拟搜索词
 -preview-file   配合 --once 强制预览指定文件
 -w / -h         配合 --once 的渲染尺寸
+```
+
+## 通用 finder（--provider）
+
+把任意「一行一候选」的输出交给 scx-rg 做模糊筛选，`Enter` 输出选中行文本（支持 `Ctrl+Space` 多选）：
+
+```bash
+fd --type f | scx-rg --provider stdin        # 文件选择（候选是真实路径时自动获得预览）
+git branch | scx-rg --provider stdin         # 任意列表
+scx-rg --provider docker-ps                  # 内置：docker 容器（镜像 · 状态做详情）
+docker stop $(scx-rg --provider docker-ps)   # 组合用法
+```
+
+## 配置文件（~/.config/scx-rg/config.toml）
+
+未配置时全部使用内置默认；配置损坏回退默认并警告，不阻断启动。优先级：flag 显式设置 > config.toml > 默认。
+
+```toml
+# 搜索防抖间隔（毫秒）
+debounce_ms = 200
+
+# 额外忽略的目录名（追加到内置忽略；对 rg 枚举与内置遍历都生效）
+ignore = ["build", ".venv"]
+
+[theme]
+accent    = "#7D56F4"  # 标题底色 / 激活边框 / 选中行
+match     = "#56C9F4"  # 命中高亮 / 输入提示符
+row_marker = "#3DDC97" # 行标记 > ✓
+```
+
+## shell 集成（CTRL-T / CTRL-R）
+
+[examples/scx-rg.zsh](examples/scx-rg.zsh) 与 [examples/scx-rg.fish](examples/scx-rg.fish) 提供 fzf 式键绑定：`CTRL-T` 从 `fd` 文件列表选文件插入命令行，`CTRL-R` 模糊搜索命令历史（zsh 用 `fc -l`、fish 用 `builtin history` 喂给 `--provider stdin`，无需内置历史源）：
+
+```zsh
+# ~/.zshrc
+source /path/to/scx-rg/examples/scx-rg.zsh
 ```
 
 ## 图片预览协议
@@ -180,12 +222,15 @@ git push origin v0.1.0
 ## 架构
 
 ```
-main.go                     入口：参数解析、协议探测、程序启动
+main.go                     入口：参数解析、配置加载、协议探测、provider 分发、程序启动
 internal/
+  config/
+    config.go               ~/.config/scx-rg/config.toml 读取（防抖/忽略/主题）
   search/
     provider.go             Provider / SyncProvider / StreamProvider 接口
     fuzzy.go                模糊匹配与评分（子序列 + 边界/连续加权）
     files.go                文件名搜索：rg --files / 内置遍历 + 模糊排序
+    list.go                 静态候选搜索（--provider stdin / docker-ps）
     rg.go                   ripgrep --json 流式解析（可取消）
   preview/
     preview.go              Render 入口：按扩展名分发
@@ -199,8 +244,10 @@ internal/
     model.go                状态 + 消息定义 + 搜索/预览命令与流式消费链
     update.go               事件处理（按键、防抖到期、流式/同步回包）
     view.go                 布局渲染（头部/列表/预览/状态栏 + 命中高亮）
-    styles.go               Lipgloss 样式
+    help.go                 帮助浮层（? / F1，按模式裁剪的键位表）
+    styles.go               Lipgloss 样式 + ApplyTheme 主题注入
 testdata/demo.png           图片预览测试素材
+examples/                   zsh/fish 集成示例（CTRL-T 文件 / CTRL-R 历史）
 ```
 
 ## 测试
