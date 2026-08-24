@@ -64,6 +64,9 @@ func (m *Model) buildPagerCmd() (*exec.Cmd, error) {
 	if len(m.results) == 0 || m.sel >= len(m.results) {
 		return nil, fmt.Errorf("没有可打开的选中项")
 	}
+	if m.gitLog {
+		return nil, fmt.Errorf("commit 无法用翻页器打开")
+	}
 	if m.prevKind == string(preview.KindImage) {
 		return nil, fmt.Errorf("图片预览无法用翻页器打开")
 	}

@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -48,6 +49,9 @@ func (m *Model) buildEditorCmd() (*exec.Cmd, error) {
 	if len(m.results) == 0 || m.sel >= len(m.results) {
 		return nil, fmt.Errorf("没有可打开的选中项")
 	}
+	if m.gitLog {
+		return nil, fmt.Errorf("commit 无法用编辑器打开")
+	}
 	if m.prevKind == string(preview.KindImage) {
 		return nil, fmt.Errorf("图片预览无法用编辑器打开")
 	}
@@ -72,8 +76,16 @@ func (m *Model) buildEditorCmd() (*exec.Cmd, error) {
 	return exec.Command(bin, args...), nil
 }
 
+// nvimServerFn 取 $NVIM（nvim --listen 启动时自设）；测试可注入。
+var nvimServerFn = os.Getenv
+
 // openInEditor 释放终端运行编辑器；退出后自动恢复 TUI。
+// 检测到 $NVIM 时改为把结果集发送到已有 nvim 会话的 quickfix
+// （nvim --server --remote-send :cfile），不打断当前编辑会话。
 func (m *Model) openInEditor() tea.Cmd {
+	if server := nvimServerFn("NVIM"); server != "" {
+		return m.sendToNvim(server)
+	}
 	c, err := m.buildEditorCmd()
 	if err != nil {
 		m.notice = err.Error()
@@ -87,3 +99,86 @@ func (m *Model) openInEditor() tea.Cmd {
 
 // editorDoneMsg 编辑器退出，TUI 恢复。
 type editorDoneMsg struct{ err error }
+
+// nvimDoneMsg quickfix 发送完成。
+type nvimDoneMsg struct {
+	count int
+	err   error
+}
+
+// nvimQuickfixLines 发送目标：标记项（按列表序，过滤掉已失效的）优先，
+// 无标记为当前选中项。
+func (m *Model) nvimQuickfixLines() []string {
+	var out []string
+	if len(m.marked) > 0 {
+		for _, r := range m.results {
+			if !m.marked[resultKey(r)] {
+				continue
+			}
+			abs := r.Path
+			if !filepath.IsAbs(abs) {
+				abs = filepath.Join(m.root, abs)
+			}
+			out = append(out, fmt.Sprintf("%s:%d: %s", abs, max(1, r.Line), r.Text))
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	if len(m.results) == 0 || m.sel >= len(m.results) {
+		return nil
+	}
+	r := m.results[m.sel]
+	abs := r.Path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(m.root, abs)
+	}
+	return []string{fmt.Sprintf("%s:%d: %s", abs, max(1, r.Line), r.Text)}
+}
+
+// sendToNvim 把选中/标记结果写入临时 qflist 文件，经 --remote-send 执行
+// :cfile 装入目标会话的 quickfix。
+func (m *Model) sendToNvim(server string) tea.Cmd {
+	lines := m.nvimQuickfixLines()
+	if len(lines) == 0 {
+		m.notice = "没有可发送的选中项"
+		return nil
+	}
+	f, err := os.CreateTemp("", "scx-rg-qf-*.txt")
+	if err != nil {
+		m.notice = "创建临时文件失败: " + err.Error()
+		return nil
+	}
+	path := f.Name()
+	if _, err := f.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		m.notice = "写入临时文件失败: " + err.Error()
+		return nil
+	}
+	_ = f.Close()
+	send := m.cfg.NvimSend
+	if send == nil {
+		send = func(server, keys string) error {
+			c := exec.Command("nvim", "--server", server, "--remote-send", keys)
+			return c.Run()
+		}
+	}
+	count := len(lines)
+	return func() tea.Msg {
+		// C-\ C-N 回到 normal 模式后 :cfile 装入 quickfix
+		err := send(server, "\x1c\x0e:cfile "+path+"\r")
+		_ = os.Remove(path)
+		return nvimDoneMsg{count: count, err: err}
+	}
+}
+
+// handleNvimDone 发送结果提示。
+func (m *Model) handleNvimDone(msg nvimDoneMsg) tea.Cmd {
+	if msg.err != nil {
+		m.notice = "发送 nvim 失败: " + msg.err.Error()
+		return nil
+	}
+	m.notice = fmt.Sprintf("已发送 %d 项到 nvim quickfix", msg.count)
+	return nil
+}

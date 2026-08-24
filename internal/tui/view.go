@@ -28,11 +28,16 @@ func (m *Model) frame() string {
 	if m.rangeBar {
 		parts = append(parts, m.rangeBarView())
 	}
-	if m.helpOverlay {
+	switch {
+	case m.helpOverlay:
 		parts = append(parts, m.helpView(), m.statusView())
-	} else if m.paletteOpen {
+	case m.paletteOpen:
 		parts = append(parts, m.paletteView(), m.statusView())
-	} else {
+	case m.historyOpen:
+		parts = append(parts, m.historyView(), m.statusView())
+	case m.pipeOpen:
+		parts = append(parts, m.pipeView(), m.statusView())
+	default:
 		parts = append(parts,
 			lipgloss.JoinHorizontal(lipgloss.Top, m.listView(), m.previewView()),
 			m.statusView(),
@@ -181,7 +186,7 @@ func (m *Model) previewView() string {
 	switch {
 	case m.prevLoading:
 		body = stylePlaceholder.Render("加载预览...")
-	case m.prevPath == "":
+	case m.prevPath == "" && !m.prevCustom:
 		hint := "选中左侧结果后在此预览"
 		if m.finder {
 			hint = "选中左侧候选查看详情"
@@ -238,7 +243,9 @@ func (m *Model) statusView() string {
 	}
 	var badge string
 	literalOn := m.matchLiteral && (m.mode == ModeContent || m.fallbackActive)
-	if m.finder {
+	if m.gitLog {
+		badge = styleBadgeFiles.Render("Git 历史")
+	} else if m.finder {
 		name := m.cfg.FinderName
 		if name == "" {
 			name = "finder"
@@ -263,6 +270,9 @@ func (m *Model) statusView() string {
 		left += styleSearching.Render("* 搜索中") + " / "
 	}
 	left += fmt.Sprintf("%d 项", len(m.results))
+	if m.blameOn && m.blameText != "" {
+		left += " " + styleDim.Render(m.blameText)
+	}
 	if n := m.markedCount(); n > 0 {
 		left += " " + styleBadgeContent.Render(fmt.Sprintf("已标记 %d", n))
 	}

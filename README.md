@@ -46,7 +46,12 @@ macOS 首次运行未签名二进制若被 Gatekeeper 拦截：`xattr -d com.app
 - **Git 筛选**：筛选栏（Ctrl+T）在 git 仓库内多出第三段「全部 / 仅改动 / 仅暂存」，文件模式在枚举层过滤、内容模式按路径过滤；未跟踪新文件不在 git diff 语义内
 - **命名主题**：`[theme] preset = default | dracula | nord | catppuccin`，也可在命令面板循环切换（会话级）；显式 hex 三色仍可覆盖 preset
 - **日志级别高亮**：预览正文内 ERROR/FATAL/PANIC（红）、WARN（黄）、INFO/DEBUG（暗）按词边界着色，与语法色/命中高亮叠加互不破坏
-- **配置文件**：`~/.config/scx-rg/config.toml` 自定义防抖、忽略目录、主题与编辑器，见下文
+- **搜索历史**：`Ctrl+G` 打开最近 100 条查询（最新在前），`Enter` 回填执行、`Del` 删除；只在「选定/编辑器打开/管道执行」时记录，中间态不进历史；落盘 `~/.local/state/scx-rg/history`（XDG_STATE_HOME），退出时写入
+- **Blame 摘要**：git 仓库内状态栏显示当前选中行的 `短hash 作者 时间`（超 30 天显示日期）；整文件 blame 按 mtime 缓存（LRU 32），`Ctrl+B` 即时开关
+- **管道输出**：输入为空时按 `|` 打开命令输入，结果行经 stdin 喂给 `sh -c`；占位符 `{path}` `{line}` `{text}` 按当前选中项替换，标记项优先；stdout+stderr 写回预览面板，不离开 TUI
+- **Git 历史搜索**：命令面板（`:`）→「Git 历史」，`git log -G<关键词>` 流式列出引入/删除该代码的提交，右侧显示 commit 详情（`git show --stat`），`Enter` 复制短 hash，`Tab` 退出
+- **nvim 会话集成**：检测到 `$NVIM`（`nvim --listen` 自设）时 `Ctrl+E` 把选中/标记结果发送到该会话的 quickfix（`:cfile`），不打断编辑；无 `$NVIM` 回退普通打开
+- **配置文件**：`~/.config/scx-rg/config.toml` 自定义防抖、忽略目录、主题、编辑器与历史，见下文
 
 ## Docker / Kubernetes / 服务器日志检索
 
@@ -120,8 +125,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 | `Tab` | 切换 文件/内容 模式 |
 | `Ctrl+F` | 匹配行为切换：文件模式=精确（子串）/ 模糊；内容与全文回退=字面量（-F）/ 正则 |
 | `Ctrl+T` | 打开可视化筛选栏（时间范围 / 条数封顶 / git 仓库内含「仅改动/仅暂存」） |
-| `Ctrl+E` | 在编辑器打开选中文件到对应行（需配置 `[editor]`） |
+| `Ctrl+E` | 在编辑器打开选中文件到对应行（需配置 `[editor]`；有 `$NVIM` 时发送 quickfix） |
 | `:` | 命令面板（输入为空时） |
+| `Ctrl+G` | 搜索历史（`Enter` 回填执行 · `Del` 删除） |
+| `\|` | 把结果行喂给外部命令（输入为空时，占位符 `{path}` `{line}` `{text}`） |
+| `Ctrl+B` | 状态栏 blame 摘要开关 |
 | `Ctrl+O` | 在 less 中打开当前预览文件（自由选择复制文本，`q` 返回） |
 | `Ctrl+Y` | 复制选中行（日志模式）/ 绝对路径（文件模式）到剪贴板 |
 | `PgUp` `PgDown` | 滚动预览 |
@@ -202,6 +210,12 @@ row_marker = "#3DDC97" # 行标记 > ✓
 # nvim/vim/emacs（+行号 文件）、code（--goto 文件:行）、zed（文件:行）预置。
 command = "nvim"
 args = ["+{line}", "{file}"]
+
+[history]
+size = 100 # 搜索历史保留条数（Ctrl+G 调用）
+
+[git]
+show_blame = true # 状态栏 blame 摘要（Ctrl+B 可即时切换）
 ```
 
 ## shell 集成（CTRL-T / CTRL-R）
@@ -285,7 +299,7 @@ go test ./...
 - `internal/search`：模糊匹配评分/分词语义、rg --files 的 gitignore 行为、**rg --json 事件解析纯单测**（`parseRgLine`，不依赖真实 rg、CI 恒跑）、流式搜索与取消不泄漏、walk 忽略规则（skipDirs + 隐藏目录）
 - `internal/preview`：高亮行数对齐、CJK/emoji 折行、超长单行段数封顶（maxWrapSegments）、二进制嗅探、大文件窗口化、图片三档渲染与协议探测
 - `internal/tui`：流式结果追加、过期消息丢弃、新搜索重置状态（通过 drain 驱动 cmd 链模拟事件循环）、多选/帮助/finder/清理注入
-- **golden frame 快照**（`internal/tui/golden_test.go`）：`RenderOnce`/`View` 整帧去 ANSI 后与 `internal/tui/testdata/golden/*.txt` 逐字节对比（files 过滤、finder 详情、帮助浮层、多选标记、图片占位、Git 筛选栏、命令面板七个场景，全部 rg-free 确定性渲染）。有意改动界面后刷新基线：
+- **golden frame 快照**（`internal/tui/golden_test.go`）：`RenderOnce`/`View` 整帧去 ANSI 后与 `internal/tui/testdata/golden/*.txt` 逐字节对比（files 过滤、finder 详情、帮助浮层、多选标记、图片占位、Git 筛选栏、命令面板、搜索历史、blame 状态栏九个场景，全部 rg-free 确定性渲染）。有意改动界面后刷新基线：
 
 ```bash
 go test ./internal/tui -update   # 重新生成 golden 基线，人工审查 diff 后提交

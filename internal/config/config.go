@@ -18,6 +18,18 @@ type Theme struct {
 	RowMarker string `toml:"row_marker"` // 行标记 > ✓
 }
 
+// History 搜索历史（Ctrl+G 快速调用；落盘 XDG state 目录，退出时写入）。
+type History struct {
+	Size int `toml:"size"` // 保留条数，0 = 默认 100
+}
+
+// Git Git 集成行为。
+type Git struct {
+	// ShowBlame 状态栏显示选中行 blame 摘要（Ctrl+B 可即时开关）；
+	// nil / 缺省 = true（bool 零值无法区分「未配置」与「显式 false」，用指针）
+	ShowBlame *bool `toml:"show_blame"`
+}
+
 // Editor 外部编辑器（Ctrl+E 打开选中文件到对应行）。
 // Command 为空 = 未配置，键位隐藏；Args 支持 {file} {line} 模板变量，
 // 留空时按 Command 名称套用 nvim/vim/code/emacs 预置模板。
@@ -32,6 +44,8 @@ type Config struct {
 	Ignore     []string `toml:"ignore"`
 	Theme      Theme    `toml:"theme"`
 	Editor     Editor   `toml:"editor"`
+	History    History  `toml:"history"`
+	Git        Git      `toml:"git"`
 }
 
 // Default 内置默认值。
@@ -76,5 +90,7 @@ func Load(path string) Config {
 	cfg.Ignore = file.Ignore
 	cfg.Theme = file.Theme
 	cfg.Editor = file.Editor
+	cfg.History = file.History
+	cfg.Git = file.Git
 	return cfg
 }

@@ -161,8 +161,9 @@ func pickerKindLabel(kind string) string {
 	return kind
 }
 
-// shutdown 退出前清理：杀掉搜索 rg 与跟随进程。幂等。
+// shutdown 退出前清理：杀掉搜索 rg 与跟随进程、落盘搜索历史。幂等。
 func (m *Model) shutdown() {
+	saveHistory(m.history, m.historyCap())
 	m.stopSearch()
 	if m.cancelFollow != nil {
 		m.cancelFollow()
@@ -236,6 +237,8 @@ func (m *Model) pickerPreview() {
 	if len(m.pickerView) == 0 || m.sel >= len(m.pickerView) {
 		m.vp.SetContent("")
 		m.prevPath = ""
+		m.prevCustom = false
+		m.prevCustom = false
 		return
 	}
 	s := m.pickerView[m.sel]
@@ -251,7 +254,8 @@ func (m *Model) pickerPreview() {
 	b.WriteString("\n" + styleDim.Render("Enter 抓取最近日志并检索") + "\n")
 	b.WriteString(styleDim.Render("输入关键词过滤 / Ctrl+R 刷新 / Esc 退出") + "\n")
 	m.vp.SetContent(b.String())
-	m.prevPath = "" // 选择器阶段不占用预览缓存
+	m.prevPath = ""
+	m.prevCustom = false // 选择器阶段不占用预览缓存
 }
 
 func kindLine(t logs.Target) string {

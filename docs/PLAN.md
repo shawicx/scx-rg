@@ -83,6 +83,18 @@
 
 golden 新增 git_chips / palette 两场景（共七个）；help 浮层新增 `:` 与 Ctrl+E 行（90x24 基线因截断线以下无变化）。
 
+## M7 上下文与效率（✅ 2026-08-24 完成）
+
+| 事项 | 状态 |
+| --- | --- |
+| 搜索历史 | ✅ `Ctrl+G` 浮层（最新在前，Enter 回填执行 / Del 删除）；只记录被实际使用的查询（选定 / Ctrl+E / 管道执行），中间态不进历史；JSON lines 落盘 `$XDG_STATE_HOME/scx-rg/history`（回退 ~/.local/state），退出写入；`[history] size` 可调 |
+| Blame 摘要 | ✅ 状态栏显示选中行 `短hash 作者 时间`（>30 天显绝对日期——可读且快照逐日稳定）；整文件 blame 一次拉取按 文件+mtime 缓存（LRU 32），选中切换零开销；`Ctrl+B` 开关，`[git] show_blame` 默认开；失败静默（非 git 仓库是常态） |
+| 管道输出 | ✅ `\|` 空输入打开命令浮层（与 ?/: 同和弦族）；`{path}` `{line}` `{text}` 按选中项替换，标记项优先经 stdin 喂 `sh -c`；输出（200KB 封顶）写回预览面板（新增 prevCustom 标志区分空态与自定义内容） |
+| Git 历史搜索 | ✅ 命令面板「Git 历史」进入；GitLogProvider 流式（git log -G · 可取消 · 复用消息链），列表=短hash·日期·subject，详情=`git show --stat`（异步 + 哈希判废），Enter 复制短 hash 不退出，Tab 退出；**顺带重构 startStreamSearch 走 provider() 泛化路径**（原硬编码 RipgrepProvider，回退路径以 default 分支保底） |
+| nvim 会话集成 | ✅ 检测 `$NVIM`：Ctrl+E 把标记/选中结果写临时 qflist 经 `--remote-send :cfile` 送入会话，发送后清理临时文件；无 `$NVIM` 回退普通打开 |
+
+golden 新增 history / blame_status（共九个）；测试新增 6 文件约 30 用例（含真实 git 仓库全链路：init→log -G→blame→show；TestMain 统一隔离 XDG_STATE_HOME 防测试污染用户目录）。
+
 ## 建议的第一周切入点（按序）
 
 1. M1 的搜索取消 + 文件模式模糊匹配（体感提升最大的两件事）

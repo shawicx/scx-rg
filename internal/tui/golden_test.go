@@ -202,3 +202,35 @@ func TestGoldenPalette(t *testing.T) {
 	}
 	goldenFrame(t, "palette", m.frame())
 }
+
+// TestGoldenHistory 历史浮层（Ctrl+G）：最新在前，光标在首条。
+func TestGoldenHistory(t *testing.T) {
+	m := goldenFilesModel(t)
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
+	m.drain(m.Init())
+	m.history = []string{"app", "user_id", "timeout"}
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl}); cmd != nil {
+		m.drain(cmd)
+	}
+	goldenFrame(t, "history", m.frame())
+}
+
+// TestGoldenBlameStatus 状态栏 blame 摘要（固定旧时间戳 → 绝对日期，
+// 快照逐日稳定）。
+func TestGoldenBlameStatus(t *testing.T) {
+	m := goldenFilesModel(t)
+	m.blameOn = true
+	m.cfg.BlameFetch = func(context.Context, string, string) (string, error) {
+		return strings.Join([]string{
+			"1111111111111111111111111111111111111111 1 1 1",
+			"author Alice",
+			"author-time 1577923200", // 2020-01-02，超过 30 天显示绝对日期
+			"summary first",
+			"\tline one",
+		}, "\n"), nil
+	}
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
+	m.drain(m.Init())
+	m.drain(m.followSelection())
+	goldenFrame(t, "blame_status", m.frame())
+}

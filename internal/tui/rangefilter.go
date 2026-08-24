@@ -291,6 +291,8 @@ func (m *Model) refilter(keep bool) tea.Cmd {
 	if len(m.results) == 0 {
 		m.vp.SetContent("")
 		m.prevPath = ""
+		m.prevCustom = false
+		m.prevCustom = false
 		return nil
 	}
 	return m.followSelection()

@@ -81,6 +81,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeViewport() // gitOK 翻转改变筛选栏高度，面板随之重排
 		return m, m.handleGitFiles(msg)
 
+	case blameMsg:
+		return m, m.handleBlame(msg)
+
+	case commitDetailMsg:
+		return m, m.handleCommitDetail(msg)
+
+	case nvimDoneMsg:
+		return m, m.handleNvimDone(msg)
+
+	case pipeDoneMsg:
+		return m, m.handlePipeDone(msg)
+
 	case pagerDoneMsg:
 		if msg.err != nil {
 			m.notice = "翻页器异常退出: " + msg.err.Error()
@@ -185,9 +197,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.rangeBar {
 		return m.handleRangeBarKey(msg)
 	}
-	// 命令面板打开时接管按键（字符过滤 / 执行 / 关闭）
+	// 命令面板 / 历史浮层 / 管道输入打开时接管按键
 	if m.paletteOpen {
 		return m.handlePaletteKey(msg)
+	}
+	if m.historyOpen {
+		return m.handleHistoryKey(msg)
+	}
+	if m.pipeOpen {
+		return m.handlePipeKey(msg)
 	}
 	// 帮助浮层打开时按任意键关闭（Ctrl+C 仍直接退出）
 	if m.helpOverlay {
@@ -211,6 +229,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.paletteSel = 0
 		return m, nil
 	}
+	// | 在输入为空时打开管道命令输入（同族）
+	if msg.String() == "|" && m.input.Value() == "" && !m.picking {
+		m.pipeOpen = true
+		m.pipeInput = ""
+		return m, nil
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		m.shutdown() // 退出前杀掉可能仍在跑的 rg / 跟随进程
@@ -218,6 +242,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "enter":
+		if m.gitLog {
+			m.recordQuery(m.input.Value())
+			return m, m.copyCommitHash()
+		}
+		m.recordQuery(m.input.Value())
 		m.shutdown()
 		m.picked = m.pickedOutput()
 		return m, tea.Quit
@@ -250,10 +279,24 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.openInPager()
 
 	case "ctrl+e":
+		m.recordQuery(m.input.Value())
 		return m, m.openInEditor()
 
 	case "ctrl+y":
 		return m, m.copySelection()
+
+	case "ctrl+g":
+		m.historyOpen = true
+		m.historySel = 0
+		return m, nil
+
+	case "ctrl+b":
+		m.blameOn = !m.blameOn
+		if !m.blameOn {
+			m.blameText = ""
+			return m, nil
+		}
+		return m, m.requestBlame()
 
 	case "tab":
 		if m.finder {
@@ -301,6 +344,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updatePlaceholder() {
+	if m.gitLog {
+		m.input.Placeholder = "输入模式，搜索引入/删除该代码的提交（git log -G）"
+		return
+	}
 	if m.mode == ModeContent {
 		if m.cfg.RgAvailable {
 			m.input.Placeholder = "输入关键词，rg 全文搜索..."

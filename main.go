@@ -84,6 +84,9 @@ func main() {
 
 		EditorCommand: userCfg.Editor.Command,
 		EditorArgs:    userCfg.Editor.Args,
+
+		HistorySize: userCfg.History.Size,
+		ShowBlame:   userCfg.Git.ShowBlame == nil || *userCfg.Git.ShowBlame,
 	}
 
 	switch {

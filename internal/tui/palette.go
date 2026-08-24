@@ -23,6 +23,11 @@ type paletteItem struct {
 // M7 将追加：搜索历史 / Git 历史；M8：最近工作区。
 func (m *Model) paletteItems() []paletteItem {
 	items := []paletteItem{
+		{title: "搜索历史", keyHint: "Ctrl+G", run: func(m *Model) tea.Cmd {
+			m.historyOpen = true
+			m.historySel = 0
+			return nil
+		}},
 		{title: "打开/关闭筛选栏", keyHint: "Ctrl+T", run: func(m *Model) tea.Cmd { return m.toggleRangeBar() }},
 		{title: "键位帮助", keyHint: "?", run: func(m *Model) tea.Cmd {
 			m.helpOverlay = true
@@ -38,10 +43,15 @@ func (m *Model) paletteItems() []paletteItem {
 		}},
 	}
 	if !m.finder {
-		items = append([]paletteItem{
+		prepend := []paletteItem{
 			{title: "切换 文件/内容 模式", keyHint: "Tab", run: func(m *Model) tea.Cmd { return m.applyModeToggle() }},
 			{title: "切换匹配方式", keyHint: "Ctrl+F", run: func(m *Model) tea.Cmd { return m.applyMatchToggle() }},
-		}, items...)
+		}
+		if !m.gitLog {
+			// 用当前关键词搜「引入/删除该代码的提交」（git log -G）
+			prepend = append(prepend, paletteItem{title: "Git 历史（搜索关键词的提交来源）", keyHint: "", run: func(m *Model) tea.Cmd { return m.enterGitLog() }})
+		}
+		items = append(prepend, items...)
 	}
 	return items
 }
@@ -133,8 +143,12 @@ func (m *Model) cycleTheme() tea.Cmd {
 	return nil
 }
 
-// applyModeToggle Tab 的共享实现（按键与命令面板共用）。
+// applyModeToggle Tab 的共享实现（按键与命令面板共用）；gitLog 模式下
+// Tab 退出回文件模式。
 func (m *Model) applyModeToggle() tea.Cmd {
+	if m.gitLog {
+		m.gitLog = false
+	}
 	if m.mode == ModeFiles {
 		m.mode = ModeContent
 	} else {

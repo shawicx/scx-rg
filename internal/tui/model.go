@@ -65,6 +65,23 @@ type Config struct {
 	// GitFiles 拉取变更文件集（Git 筛选）；nil 时调用 search 包真实 git。
 	GitFiles func(ctx context.Context, root string, staged bool) ([]string, error)
 
+	// HistorySize 历史保留条数（0 = 默认 100）；ShowBlame 状态栏 blame 摘要
+	// 默认开关（Ctrl+B 可即时切换）。
+	HistorySize int
+	ShowBlame   bool
+
+	// BlameFetch 拉取整份 blame porcelain 输出；nil 时调用 search 包真实 git。
+	BlameFetch func(ctx context.Context, root, rel string) (string, error)
+
+	// PipeRun 执行管道命令（测试注入）；nil 时真实 sh -c。
+	PipeRun func(cmdStr, dir, stdin string) (string, error)
+
+	// GitShow 取 commit 详情（测试注入）；nil 时调用 search 包真实 git。
+	GitShow func(ctx context.Context, root, hash string) (string, error)
+
+	// NvimSend 发送按键到 nvim --server（测试注入）；nil 时真实 exec。
+	NvimSend func(server, keys string) error
+
 	// 源选择器（scx-rg docker / scx-rg k8s 无参数进入）
 	PickerKind  string // "docker" | "kubectl"
 	SnapshotDir string // 快照落盘目录（由 main 创建与清理）
@@ -139,15 +156,36 @@ type Model struct {
 	paletteSel   int
 	// themePreset 会话内当前命名主题（命令面板循环切换的游标与展示）
 	themePreset string
+	// 搜索历史：存储序旧→新（尾部最新）；浮层展示倒序
+	history     []string
+	historyOpen bool
+	historySel  int
+
+	// blame 状态栏摘要（M7-2）：blameOn 开关（Ctrl+B / config [git]），
+	// blameText 当前选中行的摘要，缓存按 文件+mtime（见 blame.go）
+	blameOn     bool
+	blameText   string
+	blameCache  *blameCache
+	blameActive string // 正在拉取的 path:line（回包判废）
+
+	// gitLog 历史搜索模式（M7-4，命令面板「Git 历史」进入）
+	gitLog bool
+
+	// 管道输出（M7-3）：| 空输入打开命令输入浮层，输入独立于主搜索框
+	pipeOpen  bool
+	pipeInput string
 
 	// 流式搜索状态：cancelSearch 取消当前流（杀掉 rg 进程），
 	// streamCh 供 waitForResult 消息链继续消费。
 	cancelSearch context.CancelFunc
 	streamCh     <-chan search.Result
 
-	vp          viewport.Model
-	prevPath    string
-	prevJump    int
+	vp       viewport.Model
+	prevPath string
+	prevJump int
+	// prevCustom 预览面板当前是自定义内容（管道输出等）：prevPath 为空
+	// 但不能回落到「选中后预览」占位提示
+	prevCustom  bool
 	prevLines   int
 	prevKind    string
 	prevLang    string
@@ -218,7 +256,8 @@ func New(cfg Config) *Model {
 	ti.SetStyles(tiStyles)
 	ti.Focus()
 
-	m := &Model{cfg: cfg, root: cfg.Root, mode: cfg.Mode, input: ti, themePreset: "default"}
+	m := &Model{cfg: cfg, root: cfg.Root, mode: cfg.Mode, input: ti, themePreset: "default",
+		history: loadHistory(), blameOn: cfg.ShowBlame, blameCache: newBlameCache()}
 	m.marked = map[string]bool{}
 	m.prevCache = preview.NewCache(32)
 	m.renderFile = preview.Render
@@ -272,6 +311,9 @@ func (m *Model) nowFunc() time.Time {
 }
 
 func (m *Model) provider() search.Provider {
+	if m.gitLog {
+		return search.GitLogProvider{}
+	}
 	if m.finder {
 		return search.ListProvider{Candidates: m.cfg.Candidates, Exact: m.matchExact}
 	}
@@ -303,6 +345,7 @@ func (m *Model) runSearch() tea.Cmd {
 	m.sel, m.offset = 0, 0
 	m.vp.SetContent("")
 	m.prevPath = ""
+	m.prevCustom = false
 	m.searchErr = nil
 	m.fallbackActive = false
 
@@ -328,20 +371,33 @@ func (m *Model) runSearch() tea.Cmd {
 	}
 }
 
-// startStreamSearch 发起内容流式搜索（runSearch 与文件名回退共用）。
+// startStreamSearch 发起流式搜索（runSearch 与文件名回退共用；provider
+// 由 provider() 决定——rg 内容搜索或 git log -G 历史）。
 // 沿用当前 version，不重置列表；调用前须已取消旧搜索。
-// 查询不是合法正则时自动按字面量兜底——用户搜 log.error( 这类含元字符的
+// rg 查询不是合法正则时自动按字面量兜底——用户搜 log.error( 这类含元字符的
 // 文本不该先撞一个 regex parse error 再手动切换。
 func (m *Model) startStreamSearch() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
-	literal := m.matchLiteral
-	if !literal {
-		if _, err := regexp.Compile(m.input.Value()); err != nil {
-			literal = true
-			m.notice = "非合法正则，已按字面量搜索"
+	var sp search.StreamProvider
+	switch p := m.provider().(type) {
+	case search.RipgrepProvider:
+		literal := m.matchLiteral
+		if !literal {
+			if _, err := regexp.Compile(m.input.Value()); err != nil {
+				literal = true
+				m.notice = "非合法正则，已按字面量搜索"
+			}
 		}
+		p.Literal = literal
+		sp = p
+	case search.StreamProvider:
+		sp = p
+	default:
+		// 文件名零命中回退：provider 仍是同步的 FilesProvider，
+		// 流式对象固定为 rg 内容搜索
+		sp = search.RipgrepProvider{Literal: m.matchLiteral}
 	}
-	ch, err := (search.RipgrepProvider{Literal: literal}).SearchStream(ctx, m.root, m.input.Value())
+	ch, err := sp.SearchStream(ctx, m.root, m.input.Value())
 	if err != nil {
 		cancel()
 		m.searching = false
@@ -413,17 +469,22 @@ func (m *Model) followSelection() tea.Cmd {
 	if len(m.results) == 0 || m.sel >= len(m.results) {
 		m.setPreviewContent("")
 		m.prevPath = ""
+		m.prevCustom = false
+		m.prevCustom = false
 		return nil
 	}
 	r := m.results[m.sel]
 	// 同文件同行才免重渲染；行变化（内容模式）需按新行号重开窗口——
 	// 窗口化渲染里真实行号≠物理行号，仅滚动会错位
 	if r.Path == m.prevPath && r.Line == m.prevJump {
-		return nil
+		return m.requestBlame() // 免重渲染也要刷新 blame 摘要
 	}
 	m.prevPath = r.Path
 	m.prevJump = r.Line
 	m.prevLoading = true
+	if m.gitLog {
+		return m.loadCommitDetail(r.Path, r.Detail)
+	}
 	if m.finder {
 		if abs := m.finderPath(r.Path); abs != "" {
 			// 候选恰是存在的文件路径（fd | scx-rg --provider stdin 场景）：正常预览
@@ -435,7 +496,7 @@ func (m *Model) followSelection() tea.Cmd {
 		m.vp.GotoTop()
 		return nil
 	}
-	return m.renderSelectionPreview(r, filepath.Join(m.root, r.Path))
+	return tea.Batch(m.renderSelectionPreview(r, filepath.Join(m.root, r.Path)), m.requestBlame())
 }
 
 // renderSelectionPreview 渲染 abs 指向的文件预览（含缓存查询与异步渲染）。
@@ -581,6 +642,7 @@ func (m *Model) applyPreview(path string, ren preview.Rendered, err error) {
 // followSelectionReload 强制重新渲染当前选中项（窗口尺寸变化后调用）。
 func (m *Model) followSelectionReload() tea.Cmd {
 	m.prevPath = ""
+	m.prevCustom = false
 	return m.followSelection()
 }
 
