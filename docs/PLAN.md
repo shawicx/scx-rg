@@ -95,6 +95,16 @@ golden 新增 git_chips / palette 两场景（共七个）；help 浮层新增 `
 
 golden 新增 history / blame_status（共九个）；测试新增 6 文件约 30 用例（含真实 git 仓库全链路：init→log -G→blame→show；TestMain 统一隔离 XDG_STATE_HOME 防测试污染用户目录）。
 
+## M8 重型能力（✅ 2026-08-24 完成）
+
+| 事项 | 状态 |
+| --- | --- |
+| ast-grep 替换 | ✅ `R`（空输入，和弦族）或面板「AST 替换」进入；两段输入（模式→重写）→ `ast-grep run --pattern --rewrite --json` 扫描（byteOffset 优先、行/列兜底换算）→ 匹配列表 + `-旧/+新` diff 预览 → `y/a/n` 模态键控（其余键退出）。安全=干净 git 工作区前置检查（脏则拒绝并提示 commit/stash），应用由 Go 侧字节区间正向拼接完成（升序 + 重叠防御，不依赖 ast-grep 写文件）；无二进制隐藏入口。**已知边界**：JSON 输出格式随 ast-grep 版本可能变化，真机需用真实 ast-grep 验证一轮 |
+| 多目录 workspace | ✅ 面板「添加/清除搜索目录」（~ 展开，上限 8）；FilesProvider/RipgrepProvider 增 Roots——主目录结果保持相对路径、额外目录绝对路径（相对路径跨目录会撞 resultKey）；absPath() 统一全部路径拼接点（pick/预览/翻页器/编辑器/管道/nvim/blame）；多目录时 Git 筛选段隐藏、blame 跳过仓库外文件、AST 替换拒绝 |
+| 结构化预览 | ✅ JSON 缩进树（json.Indent 不重解析，数字精度/键序原样）+ CSV/TSV 对齐表格（列宽=CJK 感知最大宽封顶 40，500 行截断）；降级规则落实：JumpLine 恒 0 禁跳转，查询高亮/日志级别着色走原管线；非法 JSON/空表回退普通代码渲染。YAML 维持 chroma 高亮（树化与交互折叠列入 backlog，需独立渲染层） |
+
+golden 新增 replace（共十个）；测试新增 4 文件（structured/workspace/astgrep/replace）约 25 用例。**真机待验证**：真实 ast-grep 二进制的 JSON 输出与重写链路（CI 无 ast-grep，全链为注入 fake）。
+
 ## 建议的第一周切入点（按序）
 
 1. M1 的搜索取消 + 文件模式模糊匹配（体感提升最大的两件事）

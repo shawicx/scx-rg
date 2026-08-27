@@ -90,6 +90,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case nvimDoneMsg:
 		return m, m.handleNvimDone(msg)
 
+	case astScanMsg:
+		return m, m.handleAstScan(msg)
+
+	case astAppliedMsg:
+		return m, m.handleAstApplied(msg)
+
 	case pipeDoneMsg:
 		return m, m.handlePipeDone(msg)
 
@@ -207,6 +213,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.pipeOpen {
 		return m.handlePipeKey(msg)
 	}
+	if m.dirOpen {
+		return m.handleDirKey(msg)
+	}
+	if m.replaceOpen {
+		return m.handleReplaceKey(msg)
+	}
+	if m.astMode {
+		return m.handleAstKey(msg)
+	}
 	// 帮助浮层打开时按任意键关闭（Ctrl+C 仍直接退出）
 	if m.helpOverlay {
 		if msg.String() == "ctrl+c" {
@@ -234,6 +249,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pipeOpen = true
 		m.pipeInput = ""
 		return m, nil
+	}
+	// R 在输入为空时进入 ast-grep 替换（同族）
+	if msg.String() == "R" && m.input.Value() == "" && !m.picking {
+		return m, m.enterReplace()
 	}
 	switch msg.String() {
 	case "ctrl+c":

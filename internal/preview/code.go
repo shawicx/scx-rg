@@ -77,6 +77,25 @@ func renderCode(path string, width, jump int, query string) (Rendered, error) {
 	if err != nil {
 		return Rendered{Kind: KindMissing, Content: "无法读取文件: " + err.Error()}, nil
 	}
+
+	// 结构化预览：JSON 缩进树 / CSV·TSV 对齐表格。格式化重排后行号不再
+	// 对应原始文件，禁用 jump；查询高亮照常走 renderLines 管线。
+	if sk := structuredKind(path); sk != "" {
+		var lines []codeLine
+		switch sk {
+		case "JSON":
+			lines, _ = renderJSONLines(data)
+		case "CSV":
+			lines = csvLines(data, ',')
+		case "TSV":
+			lines = csvLines(data, '\t')
+		}
+		if lines != nil {
+			content, _ := renderLines(lines, lang, width, 0, query)
+			return Rendered{Kind: KindCode, Content: content, Lang: sk}, nil
+		}
+		// 解析失败（非法 JSON / 空表）回退普通代码渲染
+	}
 	raw := strings.Split(strings.TrimSuffix(expandTabs(string(data)), "\n"), "\n")
 	if len(raw) > maxCodeLines {
 		raw = raw[:maxCodeLines]

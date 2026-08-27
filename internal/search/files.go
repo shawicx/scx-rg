@@ -19,25 +19,49 @@ import (
 // IgnoreExtra 为额外忽略的目录名（来自 config），两条枚举路径都生效。
 // Allow 非空时只保留集合内的文件（Git 筛选：仅改动/仅暂存），rg 与 walk
 // 两条枚举路径都在匹配前统一过滤。
+// Roots 非空时多目录搜索：Roots[0] 为主目录（结果路径保持相对），其余
+// 目录的结果用绝对路径（相对路径跨目录会撞 key）。
 type FilesProvider struct {
 	UseRg       bool
 	Exact       bool
 	IgnoreExtra []string
 	Allow       map[string]bool
+	Roots       []string
 }
 
 func (FilesProvider) Name() string { return "files" }
 
 func (p FilesProvider) Search(ctx context.Context, root, query string) ([]Result, error) {
-	var candidates []Candidate
-	var err error
-	if p.UseRg {
-		candidates, err = ListFiles(ctx, root, p.IgnoreExtra)
-	} else {
-		candidates, err = walkFiles(ctx, root, p.IgnoreExtra)
+	roots := p.Roots
+	if len(roots) == 0 {
+		roots = []string{root}
 	}
-	if err != nil {
-		return nil, err
+	var candidates []Candidate
+	for i, r := range roots {
+		var got []Candidate
+		var err error
+		if p.UseRg {
+			got, err = ListFiles(ctx, r, p.IgnoreExtra)
+		} else {
+			got, err = walkFiles(ctx, r, p.IgnoreExtra)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 {
+			candidates = append(candidates, got...) // 主目录：保持相对路径
+			continue
+		}
+		for _, c := range got {
+			if filepath.IsAbs(c.Text) {
+				candidates = append(candidates, c)
+				continue
+			}
+			candidates = append(candidates, Candidate{Text: filepath.Join(r, c.Text), Detail: c.Detail})
+		}
+		if len(candidates) >= MaxResults {
+			break
+		}
 	}
 	if len(p.Allow) > 0 {
 		kept := make([]Candidate, 0, len(candidates))

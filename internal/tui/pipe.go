@@ -30,10 +30,7 @@ func (m *Model) pipePlaceholders(tpl string) (string, bool) {
 		return "", false
 	}
 	r := m.results[m.sel]
-	abs := r.Path
-	if !strings.HasPrefix(abs, "/") {
-		abs = m.root + "/" + r.Path
-	}
+	abs := m.absPath(r.Path)
 	replacer := strings.NewReplacer(
 		"{path}", abs,
 		"{line}", fmt.Sprintf("%d", max(1, r.Line)),

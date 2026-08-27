@@ -51,6 +51,9 @@ macOS 首次运行未签名二进制若被 Gatekeeper 拦截：`xattr -d com.app
 - **管道输出**：输入为空时按 `|` 打开命令输入，结果行经 stdin 喂给 `sh -c`；占位符 `{path}` `{line}` `{text}` 按当前选中项替换，标记项优先；stdout+stderr 写回预览面板，不离开 TUI
 - **Git 历史搜索**：命令面板（`:`）→「Git 历史」，`git log -G<关键词>` 流式列出引入/删除该代码的提交，右侧显示 commit 详情（`git show --stat`），`Enter` 复制短 hash，`Tab` 退出
 - **nvim 会话集成**：检测到 `$NVIM`（`nvim --listen` 自设）时 `Ctrl+E` 把选中/标记结果发送到该会话的 quickfix（`:cfile`），不打断编辑；无 `$NVIM` 回退普通打开
+- **AST 批量替换**：`R`（输入为空时）进入 ast-grep 替换——两段输入（AST 模式 `$VAR` 元变量 → 重写模板）后扫描，匹配列表 + `-旧/+新` diff 预览，`y` 应用当前 / `a` 应用全部 / `n` 跳过；安全模型：要求 git 仓库**干净工作区**（审查与回滚交给 `git diff` / `git checkout -- .`），需要 [ast-grep](https://ast-grep.com)（`brew install ast-grep`），未安装时命令隐藏
+- **多目录 workspace**：命令面板「添加搜索目录」（支持 `~` 展开，上限 8 个），主目录结果保持相对路径、额外目录为绝对路径，状态栏显示 `+N 目录`；多目录时 Git 筛选段隐藏（文件集口径为主根相对）
+- **结构化预览**：JSON 自动缩进成树、CSV/TSV 对齐表格（列宽自适应、CJK 宽度参与计算，500 行/30 列封顶）；格式化重排后行号不对应原文件，禁用跳转，查询高亮与日志级别着色照常
 - **配置文件**：`~/.config/scx-rg/config.toml` 自定义防抖、忽略目录、主题、编辑器与历史，见下文
 
 ## Docker / Kubernetes / 服务器日志检索
@@ -130,6 +133,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 | `Ctrl+G` | 搜索历史（`Enter` 回填执行 · `Del` 删除） |
 | `\|` | 把结果行喂给外部命令（输入为空时，占位符 `{path}` `{line}` `{text}`） |
 | `Ctrl+B` | 状态栏 blame 摘要开关 |
+| `R` | AST 替换（输入为空时；需 ast-grep 与干净 git 工作区） |
 | `Ctrl+O` | 在 less 中打开当前预览文件（自由选择复制文本，`q` 返回） |
 | `Ctrl+Y` | 复制选中行（日志模式）/ 绝对路径（文件模式）到剪贴板 |
 | `PgUp` `PgDown` | 滚动预览 |
@@ -299,7 +303,7 @@ go test ./...
 - `internal/search`：模糊匹配评分/分词语义、rg --files 的 gitignore 行为、**rg --json 事件解析纯单测**（`parseRgLine`，不依赖真实 rg、CI 恒跑）、流式搜索与取消不泄漏、walk 忽略规则（skipDirs + 隐藏目录）
 - `internal/preview`：高亮行数对齐、CJK/emoji 折行、超长单行段数封顶（maxWrapSegments）、二进制嗅探、大文件窗口化、图片三档渲染与协议探测
 - `internal/tui`：流式结果追加、过期消息丢弃、新搜索重置状态（通过 drain 驱动 cmd 链模拟事件循环）、多选/帮助/finder/清理注入
-- **golden frame 快照**（`internal/tui/golden_test.go`）：`RenderOnce`/`View` 整帧去 ANSI 后与 `internal/tui/testdata/golden/*.txt` 逐字节对比（files 过滤、finder 详情、帮助浮层、多选标记、图片占位、Git 筛选栏、命令面板、搜索历史、blame 状态栏九个场景，全部 rg-free 确定性渲染）。有意改动界面后刷新基线：
+- **golden frame 快照**（`internal/tui/golden_test.go`）：`RenderOnce`/`View` 整帧去 ANSI 后与 `internal/tui/testdata/golden/*.txt` 逐字节对比（files 过滤、finder 详情、帮助浮层、多选标记、图片占位、Git 筛选栏、命令面板、搜索历史、blame 状态栏、AST 替换浮层十个场景，全部 rg-free 确定性渲染）。有意改动界面后刷新基线：
 
 ```bash
 go test ./internal/tui -update   # 重新生成 golden 基线，人工审查 diff 后提交

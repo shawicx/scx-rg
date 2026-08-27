@@ -234,3 +234,25 @@ func TestGoldenBlameStatus(t *testing.T) {
 	m.drain(m.followSelection())
 	goldenFrame(t, "blame_status", m.frame())
 }
+
+// TestGoldenReplace AST 替换两段输入浮层（第一阶段：只显示模式输入行）。
+func TestGoldenReplace(t *testing.T) {
+	m := goldenFilesModel(t)
+	orig := astGrepAvailable
+	astGrepAvailable = func() bool { return true }
+	t.Cleanup(func() { astGrepAvailable = orig })
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
+	m.drain(m.Init())
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'R', ShiftedCode: 'R'}); cmd != nil {
+		m.drain(cmd)
+	}
+	if !m.replaceOpen {
+		t.Fatal("前置失败：替换浮层未打开（R 需 shift 修饰或大写形式）")
+	}
+	for _, r := range "console.log($X)" {
+		if _, cmd := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)}); cmd != nil {
+			m.drain(cmd)
+		}
+	}
+	goldenFrame(t, "replace", m.frame())
+}

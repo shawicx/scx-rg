@@ -28,6 +28,11 @@ func (m *Model) paletteItems() []paletteItem {
 			m.historySel = 0
 			return nil
 		}},
+		{title: "添加搜索目录（多目录 workspace）", keyHint: "", run: func(m *Model) tea.Cmd {
+			m.dirOpen = true
+			m.dirInput = ""
+			return nil
+		}},
 		{title: "打开/关闭筛选栏", keyHint: "Ctrl+T", run: func(m *Model) tea.Cmd { return m.toggleRangeBar() }},
 		{title: "键位帮助", keyHint: "?", run: func(m *Model) tea.Cmd {
 			m.helpOverlay = true
@@ -36,6 +41,8 @@ func (m *Model) paletteItems() []paletteItem {
 		{title: "切换主题（当前 " + m.themePreset + "）", keyHint: "", run: func(m *Model) tea.Cmd {
 			return m.cycleTheme()
 		}},
+		{title: "清除额外搜索目录", keyHint: "", run: func(m *Model) tea.Cmd { return m.clearExtraRoots() }},
+		{title: "AST 替换（ast-grep）", keyHint: "R", run: func(m *Model) tea.Cmd { return m.enterReplace() }},
 		{title: "退出", keyHint: "Ctrl+C", run: func(m *Model) tea.Cmd {
 			m.shutdown()
 			m.picked = ""

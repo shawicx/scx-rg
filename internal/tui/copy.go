@@ -71,7 +71,7 @@ func (m *Model) buildPagerCmd() (*exec.Cmd, error) {
 		return nil, fmt.Errorf("图片预览无法用翻页器打开")
 	}
 	r := m.results[m.sel]
-	abs := filepath.Join(m.root, r.Path)
+	abs := m.absPath(r.Path)
 	pager := "less"
 	if _, err := exec.LookPath("less"); err != nil {
 		if _, err2 := exec.LookPath("more"); err2 != nil {

@@ -120,7 +120,8 @@ func (m *Model) toggleRangeBar() tea.Cmd {
 	if m.rangeBar {
 		m.rangeSel = [3]int{durPresetIndex(m.filterDur), capPresetIndex(m.filterCap), gitPresetIndex(m.gitFilter)}
 		m.input.Blur()
-		if !m.gitKnown && !m.finder && !m.picking {
+		// 多目录 workspace 的结果含绝对路径，主根相对的 Git 文件集无法匹配，段隐藏
+		if !m.gitKnown && !m.finder && !m.picking && len(m.extraRoots) == 0 {
 			m.gitLoading = true
 			cmds = append(cmds, m.loadGitFiles(false))
 		}

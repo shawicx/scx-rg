@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -37,6 +38,10 @@ func (m *Model) frame() string {
 		parts = append(parts, m.historyView(), m.statusView())
 	case m.pipeOpen:
 		parts = append(parts, m.pipeView(), m.statusView())
+	case m.dirOpen:
+		parts = append(parts, m.dirView(), m.statusView())
+	case m.replaceOpen:
+		parts = append(parts, m.replaceView(), m.statusView())
 	default:
 		parts = append(parts,
 			lipgloss.JoinHorizontal(lipgloss.Top, m.listView(), m.previewView()),
@@ -121,7 +126,7 @@ func (m *Model) resultRow(i, w int) string {
 		marker = styleRowMarker.Render("✓ ") // 标记态优先于选中指针
 	}
 	var body string
-	if m.mode == ModeFiles && !m.fallbackActive {
+	if m.mode == ModeFiles && !m.fallbackActive && !m.astMode {
 		dir, base := filepath.Split(r.Path)
 		// Hits 是相对整个路径的 rune 下标，换算成 base 内的下标
 		off := len([]rune(dir))
@@ -275,6 +280,9 @@ func (m *Model) statusView() string {
 	}
 	if n := m.markedCount(); n > 0 {
 		left += " " + styleBadgeContent.Render(fmt.Sprintf("已标记 %d", n))
+	}
+	if n := len(m.extraRoots); n > 0 {
+		left += " " + styleBadgeContent.Render("+"+strconv.Itoa(n)+" 目录")
 	}
 	left += m.filterStatus()
 	left += m.followStatus()

@@ -63,10 +63,7 @@ func (m *Model) buildEditorCmd() (*exec.Cmd, error) {
 	if _, err := exec.LookPath(bin); err != nil {
 		return nil, fmt.Errorf("未找到编辑器 %s", bin)
 	}
-	abs := r.Path
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(m.root, abs)
-	}
+	abs := m.absPath(r.Path)
 	args := make([]string, 0, len(m.cfg.EditorArgs)+1)
 	for _, a := range editorArgs(m.cfg.EditorCommand, m.cfg.EditorArgs) {
 		a = strings.ReplaceAll(a, "{file}", abs)
@@ -115,11 +112,7 @@ func (m *Model) nvimQuickfixLines() []string {
 			if !m.marked[resultKey(r)] {
 				continue
 			}
-			abs := r.Path
-			if !filepath.IsAbs(abs) {
-				abs = filepath.Join(m.root, abs)
-			}
-			out = append(out, fmt.Sprintf("%s:%d: %s", abs, max(1, r.Line), r.Text))
+			out = append(out, fmt.Sprintf("%s:%d: %s", m.absPath(r.Path), max(1, r.Line), r.Text))
 		}
 	}
 	if len(out) > 0 {
@@ -129,11 +122,7 @@ func (m *Model) nvimQuickfixLines() []string {
 		return nil
 	}
 	r := m.results[m.sel]
-	abs := r.Path
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(m.root, abs)
-	}
-	return []string{fmt.Sprintf("%s:%d: %s", abs, max(1, r.Line), r.Text)}
+	return []string{fmt.Sprintf("%s:%d: %s", m.absPath(r.Path), max(1, r.Line), r.Text)}
 }
 
 // sendToNvim 把选中/标记结果写入临时 qflist 文件，经 --remote-send 执行

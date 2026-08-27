@@ -7,14 +7,18 @@ import (
 	"encoding/json"
 	"errors"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
 // RipgrepProvider 借助 ripgrep 做内容搜索，流式解析 rg --json 输出。
 // Literal 为 true 时用固定字符串匹配（-F），适合搜索含正则元字符的文本
 // （如 log.error(）；默认按正则解析查询。
+// Roots 非空时为多目录搜索：Roots[0] 为主目录（进程工作目录，结果相对
+// 路径），其余目录以绝对路径作为 rg 搜索参数（结果为绝对路径）。
 type RipgrepProvider struct {
 	Literal bool
+	Roots   []string
 }
 
 // RgAvailable 检测系统是否安装了 rg。
@@ -71,6 +75,9 @@ func (p RipgrepProvider) SearchStream(ctx context.Context, root, query string) (
 		args = append(args, "--fixed-strings")
 	}
 	args = append(args, "--", query, ".")
+	for _, extra := range p.rootsAfter(root) {
+		args = append(args, extra)
+	}
 	cmd := exec.CommandContext(ctx, "rg", args...)
 	cmd.Dir = root
 	// 捕获 stderr：rg 对权限错误/非法正则的报错不能漏进 TUI，失败时经结果流传回
@@ -147,4 +154,25 @@ func rgErrMessage(stderr string) string {
 		}
 	}
 	return strings.TrimSpace(msg)
+}
+
+// rootsAfter 返回主目录之后的额外搜索根（绝对路径）。
+func (p RipgrepProvider) rootsAfter(root string) []string {
+	if len(p.Roots) < 2 {
+		return nil
+	}
+	out := make([]string, 0, len(p.Roots)-1)
+	for _, r := range p.Roots[1:] {
+		if r == root {
+			continue
+		}
+		if !filepath.IsAbs(r) {
+			abs, err := filepath.Abs(r)
+			if err == nil {
+				r = abs
+			}
+		}
+		out = append(out, r)
+	}
+	return out
 }

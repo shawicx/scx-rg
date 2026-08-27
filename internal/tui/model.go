@@ -82,6 +82,11 @@ type Config struct {
 	// NvimSend 发送按键到 nvim --server（测试注入）；nil 时真实 exec。
 	NvimSend func(server, keys string) error
 
+	// ast-grep 替换注入（测试）；nil 时调用 search 包真实实现。
+	GitClean func(ctx context.Context, root string) (bool, error)
+	AstScan  func(ctx context.Context, root, pattern, rewrite string) ([]search.AstMatch, error)
+	AstApply func(root string, matches []search.AstMatch) (int, error)
+
 	// 源选择器（scx-rg docker / scx-rg k8s 无参数进入）
 	PickerKind  string // "docker" | "kubectl"
 	SnapshotDir string // 快照落盘目录（由 main 创建与清理）
@@ -174,6 +179,20 @@ type Model struct {
 	// 管道输出（M7-3）：| 空输入打开命令输入浮层，输入独立于主搜索框
 	pipeOpen  bool
 	pipeInput string
+
+	// 多目录 workspace（M8-2）：主目录仍是 cfg.Root（相对路径结果），
+	// 额外目录的结果用绝对路径；命令面板「添加搜索目录」维护
+	extraRoots []string
+	dirOpen    bool
+	dirInput   string
+
+	// ast-grep 替换（M8-3）：两段输入浮层 → 匹配列表模态（y/n/a）
+	replaceOpen    bool
+	replaceStage   int
+	replacePattern string
+	replaceRewrite string
+	astMode        bool
+	astMatches     []search.AstMatch
 
 	// 流式搜索状态：cancelSearch 取消当前流（杀掉 rg 进程），
 	// streamCh 供 waitForResult 消息链继续消费。
@@ -310,6 +329,23 @@ func (m *Model) nowFunc() time.Time {
 	return time.Now()
 }
 
+// absPath 结果路径 → 绝对路径：额外目录的结果本就是绝对路径，
+// 主目录结果相对 cfg.Root。
+func (m *Model) absPath(p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(m.root, p)
+}
+
+// roots 全部搜索根：主目录在前；无额外目录返回 nil（单目录语义不变）。
+func (m *Model) roots() []string {
+	if len(m.extraRoots) == 0 {
+		return nil
+	}
+	return append([]string{m.root}, m.extraRoots...)
+}
+
 func (m *Model) provider() search.Provider {
 	if m.gitLog {
 		return search.GitLogProvider{}
@@ -319,11 +355,12 @@ func (m *Model) provider() search.Provider {
 	}
 	if m.mode == ModeContent {
 		if m.cfg.RgAvailable {
-			return search.RipgrepProvider{}
+			return search.RipgrepProvider{Roots: m.roots()}
 		}
 		return nil
 	}
-	return search.FilesProvider{UseRg: m.cfg.RgAvailable, Exact: m.matchExact, IgnoreExtra: m.cfg.IgnoreDirs, Allow: m.gitAllow}
+	return search.FilesProvider{UseRg: m.cfg.RgAvailable, Exact: m.matchExact,
+		IgnoreExtra: m.cfg.IgnoreDirs, Allow: m.gitAllow, Roots: m.roots()}
 }
 
 // runSearch 基于当前查询发起搜索：先取消上一轮（流式会立刻杀掉 rg 进程），
@@ -496,7 +533,7 @@ func (m *Model) followSelection() tea.Cmd {
 		m.vp.GotoTop()
 		return nil
 	}
-	return tea.Batch(m.renderSelectionPreview(r, filepath.Join(m.root, r.Path)), m.requestBlame())
+	return tea.Batch(m.renderSelectionPreview(r, m.absPath(r.Path)), m.requestBlame())
 }
 
 // renderSelectionPreview 渲染 abs 指向的文件预览（含缓存查询与异步渲染）。
@@ -594,7 +631,7 @@ func (m *Model) pickText(r search.Result) string {
 	if m.cfg.PickLine {
 		return r.Text
 	}
-	return filepath.Join(m.root, r.Path)
+	return m.absPath(r.Path)
 }
 
 // setPreviewContent 预览内容的统一入口：从 kitty 图形切到非图形内容时注入

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -87,13 +88,14 @@ func (m *Model) requestBlame() tea.Cmd {
 		m.blameText = ""
 		return nil
 	}
+	// 额外目录（绝对路径）不在主仓库根下时跳过 blame
+	if filepath.IsAbs(r.Path) && !strings.HasPrefix(r.Path, m.root+string(filepath.Separator)) {
+		m.blameText = ""
+		return nil
+	}
 	line := max(1, r.Line)
 	key := r.Path + ":" + strconv.Itoa(line)
-	abs := r.Path
-	if !strings.HasPrefix(abs, "/") {
-		abs = m.root + "/" + r.Path
-	}
-	st, err := statFile(abs)
+	st, err := statFile(m.absPath(r.Path))
 	if err != nil {
 		m.blameText = ""
 		return nil
@@ -132,7 +134,7 @@ func (m *Model) handleBlame(msg blameMsg) tea.Cmd {
 		return nil // 静默：非 git 仓库是常态
 	}
 	r := m.results[m.sel]
-	st, err := statFile(m.root + "/" + r.Path)
+	st, err := statFile(m.absPath(r.Path))
 	if err == nil {
 		m.blameCache.put(r.Path, st, msg.lines)
 	}

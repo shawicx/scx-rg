@@ -80,6 +80,7 @@ func (m *Model) helpGroups() []helpGroup {
 			{"Ctrl+G", "搜索历史（Enter 回填执行 · Del 删除）"},
 			{"|", "把结果喂给外部命令（输入为空时）"},
 			{"Ctrl+B", "状态栏 blame 摘要开关"},
+			{"R", "AST 替换（输入为空时；需 ast-grep 与干净工作区）"},
 			{"?", "本帮助（输入为空时）· F1 任何时候"},
 			{"Ctrl+C", "退出"},
 		},
