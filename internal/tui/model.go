@@ -300,6 +300,8 @@ func New(cfg Config) *Model {
 		m.listLoading = true
 		m.mode = ModeContent
 		ti.Placeholder = "输入名称过滤，实时匹配..."
+	} else if cfg.PickLine {
+		m.updatePlaceholder() // 直达日志路径（docker <名字> / --follow）：初始即日志语义
 	}
 	return m
 }
@@ -355,7 +357,9 @@ func (m *Model) provider() search.Provider {
 	}
 	if m.mode == ModeContent {
 		if m.cfg.RgAvailable {
-			return search.RipgrepProvider{Roots: m.roots()}
+			// 日志场景（PickLine：docker/k8s 快照、--follow）空查询放行，
+			// rg 空模式匹配每一行——「不输入即看全部」；普通内容模式维持短路。
+			return search.RipgrepProvider{Roots: m.roots(), AllowEmptyQuery: m.cfg.PickLine}
 		}
 		return nil
 	}

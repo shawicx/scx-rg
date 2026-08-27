@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +35,37 @@ func newFollowModel(t *testing.T, content string) (*Model, string) {
 	m.onceMode = true // 测试用 drain 同步驱动，禁用周期 tick
 	m.followSize = int64(len(content))
 	return m, logPath
+}
+
+func TestDirectLogPathEmptyQueryShowsAll(t *testing.T) {
+	if !search.RgAvailable() {
+		t.Skip("rg 未安装")
+	}
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "docker.log")
+	if err := os.WriteFile(logPath, []byte("INFO started\nWARN slow\nERROR down\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// 与 main.go 直达路径（scx-rg docker <名字> / --follow <文件>）同构的 Config
+	m := New(Config{
+		Root:        dir,
+		Mode:        ModeContent,
+		Debounce:    time.Millisecond,
+		ImgProto:    preview.ProtocolNone,
+		RgAvailable: true,
+		FollowFile:  logPath,
+		PickLine:    true,
+		Title:       "docker:web",
+	})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.onceMode = true
+	m.drain(m.Init()) // 启动即空查询搜索
+	if len(m.results) != 3 {
+		t.Fatalf("直达日志路径空查询应显示全部 3 行, 得到 %d", len(m.results))
+	}
+	if !strings.Contains(m.input.Placeholder, "留空") {
+		t.Fatalf("placeholder 应提示留空显示全部, 得到 %q", m.input.Placeholder)
+	}
 }
 
 func TestFollowTickRefreshesOnGrowth(t *testing.T) {

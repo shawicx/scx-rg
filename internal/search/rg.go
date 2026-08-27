@@ -16,9 +16,13 @@ import (
 // （如 log.error(）；默认按正则解析查询。
 // Roots 非空时为多目录搜索：Roots[0] 为主目录（进程工作目录，结果相对
 // 路径），其余目录以绝对路径作为 rg 搜索参数（结果为绝对路径）。
+// AllowEmptyQuery 为 true 时空查询不短路：rg 的空模式匹配每一行，
+// 日志场景（PickLine）靠它实现「不输入关键词即看全部日志」；
+// 普通内容模式保持空查询零结果，避免整仓倾倒。
 type RipgrepProvider struct {
-	Literal bool
-	Roots   []string
+	Literal         bool
+	Roots           []string
+	AllowEmptyQuery bool
 }
 
 // RgAvailable 检测系统是否安装了 rg。
@@ -64,7 +68,7 @@ func parseRgLine(line []byte) (Result, bool) {
 // SearchStream 启动 rg 并通过 channel 流式返回匹配，全部发完（或达到上限、
 // 被取消、出错）后关闭 channel。取消 ctx 会立即杀死 rg 进程并解除发送阻塞。
 func (p RipgrepProvider) SearchStream(ctx context.Context, root, query string) (<-chan Result, error) {
-	if strings.TrimSpace(query) == "" {
+	if strings.TrimSpace(query) == "" && !p.AllowEmptyQuery {
 		ch := make(chan Result)
 		close(ch)
 		return ch, nil

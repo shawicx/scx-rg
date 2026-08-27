@@ -98,6 +98,27 @@ func TestSearchStreamEmptyQuery(t *testing.T) {
 	}
 }
 
+func TestSearchStreamEmptyQueryAllowedMatchesAll(t *testing.T) {
+	if !RgAvailable() {
+		t.Skip("rg 未安装")
+	}
+	dir := writeTree(t, map[string]string{
+		"a.log": "first line\nsecond line\n",
+		"b.log": "third line\n",
+	}, false)
+	ch, err := (RipgrepProvider{AllowEmptyQuery: true}).SearchStream(context.Background(), dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, closed := drain(ch, 5*time.Second)
+	if !closed {
+		t.Fatal("channel 应在搜索结束后关闭")
+	}
+	if n != 3 {
+		t.Fatalf("空查询放行应匹配每一行（rg 空模式），得到 n=%d", n)
+	}
+}
+
 func TestSearchStreamCancelClosesPromptly(t *testing.T) {
 	if !RgAvailable() {
 		t.Skip("rg 未安装")

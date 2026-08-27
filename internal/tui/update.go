@@ -367,6 +367,10 @@ func (m *Model) updatePlaceholder() {
 		m.input.Placeholder = "输入模式，搜索引入/删除该代码的提交（git log -G）"
 		return
 	}
+	if m.cfg.PickLine && m.mode == ModeContent {
+		m.input.Placeholder = "输入关键词过滤日志，留空显示全部"
+		return
+	}
 	if m.mode == ModeContent {
 		if m.cfg.RgAvailable {
 			m.input.Placeholder = "输入关键词，rg 全文搜索..."

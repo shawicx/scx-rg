@@ -91,6 +91,30 @@ func TestPickerLoadFilterAndPick(t *testing.T) {
 		t.Fatal("日志快照场景 PickLine 应为 true")
 	}
 
+	// 空查询即应看到全部日志行（rg 空模式放行），而不是空列表
+	if search.RgAvailable() {
+		if len(m.results) != 2 { // "hello needle" + "plain"
+			t.Fatalf("空查询应显示全部 2 行日志, 得到 %d", len(m.results))
+		}
+		if !strings.Contains(m.results[0].Text, "hello needle") {
+			t.Fatalf("首条结果应为日志首行, 得到 %q", m.results[0].Text)
+		}
+		if view := m.frame(); !strings.Contains(view, "plain") {
+			t.Fatalf("视图应包含日志内容:\n%s", view)
+		}
+		// 清空输入后回到全量，而不是空列表
+		m.input.SetValue("zzz_no_hit")
+		triggerSearch(m)
+		if len(m.results) != 0 {
+			t.Fatalf("无命中关键词应清空列表, 得到 %d", len(m.results))
+		}
+		m.input.SetValue("")
+		triggerSearch(m)
+		if len(m.results) != 2 {
+			t.Fatalf("清空关键词应回到全量 2 行, 得到 %d", len(m.results))
+		}
+	}
+
 	if search.RgAvailable() {
 		m.input.SetValue("needle")
 		triggerSearch(m)
@@ -128,6 +152,10 @@ func TestPickerFollowPick(t *testing.T) {
 	}
 	if !m.following() {
 		t.Fatal("选中后应进入跟随模式")
+	}
+	// 空查询即应看到跟随进程落盘的全部初始内容
+	if len(m.results) != 2 { // "ERROR one" + "plain"
+		t.Fatalf("空查询应显示全部 2 行初始日志, 得到 %d", len(m.results))
 	}
 	m.input.SetValue("ERROR")
 	triggerSearch(m)
