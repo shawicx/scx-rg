@@ -152,13 +152,13 @@ func (m *Model) handleHistoryKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.followKeep = ""
 		return m, m.runSearch()
 
-	case "up", "ctrl+p":
+	case "up", "ctrl+p", "alt+p":
 		if m.historySel > 0 {
 			m.historySel--
 		}
 		return m, nil
 
-	case "down", "ctrl+n":
+	case "down", "ctrl+n", "alt+n":
 		if m.historySel < len(vis)-1 {
 			m.historySel++
 		}

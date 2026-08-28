@@ -20,10 +20,12 @@ type paletteItem struct {
 }
 
 // paletteItems 当前模式下的命令清单（顺序即展示顺序，golden 依赖确定性）。
-// M7 将追加：搜索历史 / Git 历史；M8：最近工作区。
+// 键位提示统一双写「Ctrl+X / Alt+X」：堡垒机/浏览器 Web 终端常截获 Ctrl
+// 组合键，Alt 别名与面板本身都是无冲突逃生门。M7 将追加：搜索历史 / Git
+// 历史；M8：最近工作区。
 func (m *Model) paletteItems() []paletteItem {
 	items := []paletteItem{
-		{title: "搜索历史", keyHint: "Ctrl+G", run: func(m *Model) tea.Cmd {
+		{title: "搜索历史", keyHint: "Ctrl+G / Alt+G", run: func(m *Model) tea.Cmd {
 			m.historyOpen = true
 			m.historySel = 0
 			return nil
@@ -33,7 +35,10 @@ func (m *Model) paletteItems() []paletteItem {
 			m.dirInput = ""
 			return nil
 		}},
-		{title: "打开/关闭筛选栏", keyHint: "Ctrl+T", run: func(m *Model) tea.Cmd { return m.toggleRangeBar() }},
+		{title: "打开/关闭筛选栏", keyHint: "Ctrl+T / Alt+T", run: func(m *Model) tea.Cmd { return m.toggleRangeBar() }},
+		{title: "复制选中", keyHint: "Ctrl+Y / Alt+Y", run: func(m *Model) tea.Cmd { return m.copySelection() }},
+		{title: "翻页器打开选中", keyHint: "Ctrl+O / Alt+O", run: func(m *Model) tea.Cmd { return m.openInPager() }},
+		{title: "标记/取消标记（多选）", keyHint: "Ctrl+Space / Alt+M", run: func(m *Model) tea.Cmd { return m.toggleMark() }},
 		{title: "键位帮助", keyHint: "?", run: func(m *Model) tea.Cmd {
 			m.helpOverlay = true
 			return nil
@@ -49,10 +54,27 @@ func (m *Model) paletteItems() []paletteItem {
 			return tea.Quit
 		}},
 	}
+	// 场景专属条目（编辑器/blame 无快捷键冲突风险也一并提供面板入口）
+	if m.cfg.EditorCommand != "" {
+		items = append(items, paletteItem{title: "编辑器打开选中", keyHint: "Ctrl+E / Alt+E", run: func(m *Model) tea.Cmd {
+			m.recordQuery(m.input.Value())
+			return m.openInEditor()
+		}})
+	}
+	if m.gitOK {
+		items = append(items, paletteItem{title: "Blame 摘要开关", keyHint: "Ctrl+B / Alt+B", run: func(m *Model) tea.Cmd {
+			m.blameOn = !m.blameOn
+			if !m.blameOn {
+				m.blameText = ""
+				return nil
+			}
+			return m.requestBlame()
+		}})
+	}
 	if !m.finder {
 		prepend := []paletteItem{
 			{title: "切换 文件/内容 模式", keyHint: "Tab", run: func(m *Model) tea.Cmd { return m.applyModeToggle() }},
-			{title: "切换匹配方式", keyHint: "Ctrl+F", run: func(m *Model) tea.Cmd { return m.applyMatchToggle() }},
+			{title: "切换匹配方式", keyHint: "Ctrl+F / Alt+F", run: func(m *Model) tea.Cmd { return m.applyMatchToggle() }},
 		}
 		if !m.gitLog {
 			// 用当前关键词搜「引入/删除该代码的提交」（git log -G）
@@ -101,13 +123,13 @@ func (m *Model) handlePaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.closePalette()
 		return m, run(m)
 
-	case "up", "ctrl+p":
+	case "up", "ctrl+p", "alt+p":
 		if m.paletteSel > 0 {
 			m.paletteSel--
 		}
 		return m, nil
 
-	case "down", "ctrl+n":
+	case "down", "ctrl+n", "alt+n":
 		if m.paletteSel < len(m.paletteVisible())-1 {
 			m.paletteSel++
 		}

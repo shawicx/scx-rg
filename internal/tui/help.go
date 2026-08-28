@@ -12,7 +12,9 @@ type helpGroup struct {
 	rows  [][2]string
 }
 
-// helpGroups 按当前模式裁剪的完整键位表。
+// helpGroups 按当前模式裁剪的完整键位表。Ctrl 功能键双写 Alt 别名：
+// 堡垒机/浏览器 Web 终端常在按键到达 SSH 会话前截获 Ctrl 组合键
+// （Ctrl+T 新标签页、Ctrl+F 页内查找等），Alt 组合键基本都会透传。
 func (m *Model) helpGroups() []helpGroup {
 	groups := []helpGroup{{
 		title: "搜索",
@@ -25,7 +27,7 @@ func (m *Model) helpGroups() []helpGroup {
 		groups = append(groups, helpGroup{
 			title: "模式",
 			rows: [][2]string{
-				{"Ctrl+F", "精确 / 模糊匹配切换"},
+				{"Ctrl+F / Alt+F", "精确 / 模糊匹配切换"},
 				{"--", "Tab 切模式已禁用（静态候选）"},
 			},
 		})
@@ -34,7 +36,7 @@ func (m *Model) helpGroups() []helpGroup {
 			title: "模式",
 			rows: [][2]string{
 				{"Tab", "文件 ⇄ 内容 模式切换"},
-				{"Ctrl+F", "精确/模糊（文件）· 字面/正则（内容）"},
+				{"Ctrl+F / Alt+F", "精确/模糊（文件）· 字面/正则（内容）"},
 			},
 		})
 	}
@@ -42,8 +44,8 @@ func (m *Model) helpGroups() []helpGroup {
 		helpGroup{
 			title: "列表",
 			rows: [][2]string{
-				{"↑ ↓", "移动选中项"},
-				{"Ctrl+Space", "标记 / 取消当前行（多选）"},
+				{"↑↓ Ctrl+P/N", "移动选中项（Alt+P/N 同效）"},
+				{"Ctrl+Space / Alt+M", "标记 / 取消当前行（多选）"},
 				{"Enter", "输出选中项；有标记则输出全部标记项"},
 			},
 		},
@@ -51,8 +53,8 @@ func (m *Model) helpGroups() []helpGroup {
 			title: "预览",
 			rows: [][2]string{
 				{"PgUp PgDn", "滚动预览（图片预览除外）"},
-				{"Ctrl+Y", "复制当前预览内容"},
-				{"Ctrl+O", "外部翻页器打开（翻页复制）"},
+				{"Ctrl+Y / Alt+Y", "复制当前预览内容"},
+				{"Ctrl+O / Alt+O", "外部翻页器打开（翻页复制）"},
 			},
 		},
 	)
@@ -60,7 +62,7 @@ func (m *Model) helpGroups() []helpGroup {
 		groups = append(groups, helpGroup{
 			title: "动作",
 			rows: [][2]string{
-				{"Ctrl+E", "在编辑器打开选中文件到对应行"},
+				{"Ctrl+E / Alt+E", "在编辑器打开选中文件到对应行"},
 			},
 		})
 	}
@@ -68,7 +70,7 @@ func (m *Model) helpGroups() []helpGroup {
 		groups = append(groups, helpGroup{
 			title: "筛选（日志/跟随）",
 			rows: [][2]string{
-				{"Ctrl+T", "打开 / 关闭结果筛选栏"},
+				{"Ctrl+T / Alt+T", "打开 / 关闭结果筛选栏"},
 				{"↑ ↓ Tab", "筛选栏内切段移动（时间/条数/Git）"},
 			},
 		})
@@ -76,10 +78,10 @@ func (m *Model) helpGroups() []helpGroup {
 	groups = append(groups, helpGroup{
 		title: "其他",
 		rows: [][2]string{
-			{":", "命令面板（输入为空时）"},
-			{"Ctrl+G", "搜索历史（Enter 回填执行 · Del 删除）"},
+			{":", "命令面板（输入为空时；全部命令的无冲突入口）"},
+			{"Ctrl+G / Alt+G", "搜索历史（Enter 回填执行 · Del 删除）"},
 			{"|", "把结果喂给外部命令（输入为空时）"},
-			{"Ctrl+B", "状态栏 blame 摘要开关"},
+			{"Ctrl+B / Alt+B", "状态栏 blame 摘要开关"},
 			{"R", "AST 替换（输入为空时；需 ast-grep 与干净工作区）"},
 			{"?", "本帮助（输入为空时）· F1 任何时候"},
 			{"Ctrl+C", "退出"},

@@ -169,13 +169,13 @@ func (m *Model) handleRangeBarKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.picked = ""
 		return m, tea.Quit
 
-	case "ctrl+t", "enter", "esc":
+	case "ctrl+t", "alt+t", "enter", "esc":
 		return m, m.toggleRangeBar()
-	case "up", "ctrl+p":
+	case "up", "ctrl+p", "alt+p":
 		if m.rangeSeg > 0 {
 			m.rangeSeg-- // 上一段（钳位，与旧两段语义一致）
 		}
-	case "down", "ctrl+n":
+	case "down", "ctrl+n", "alt+n":
 		if m.rangeSeg < segs-1 {
 			m.rangeSeg++
 		}

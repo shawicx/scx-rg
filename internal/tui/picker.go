@@ -197,7 +197,7 @@ func (m *Model) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "up", "ctrl+p":
+	case "up", "ctrl+p", "alt+p":
 		if m.sel > 0 {
 			m.sel--
 		}
@@ -205,7 +205,7 @@ func (m *Model) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pickerPreview()
 		return m, nil
 
-	case "down", "ctrl+n":
+	case "down", "ctrl+n", "alt+n":
 		if m.sel < len(m.pickerView)-1 {
 			m.sel++
 		}
@@ -213,7 +213,7 @@ func (m *Model) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pickerPreview()
 		return m, nil
 
-	case "ctrl+r":
+	case "ctrl+r", "alt+r": // 浏览器里 Ctrl+R 是刷新页面，堡垒机场景用 Alt+R
 		if m.pickLoading {
 			return m, nil
 		}
@@ -222,6 +222,9 @@ func (m *Model) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadPicker()
 
 	default:
+		if strings.HasPrefix(msg.String(), "alt+") {
+			return m, nil // Alt 组合键是命令不是文本
+		}
 		before := m.input.Value()
 		newInput, cmd := m.input.Update(msg)
 		m.input = newInput

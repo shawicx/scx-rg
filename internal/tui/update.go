@@ -285,31 +285,34 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.shutdown()
 		return m, tea.Quit
 
-	case "ctrl+@", "ctrl+space": // Ctrl+Space：legacy 终端发 NUL 记为 ctrl+@，kitty 协议终端记为 ctrl+space
+	// Alt 别名：堡垒机/浏览器 Web 终端常在按键到达 SSH 会话前截获 Ctrl 组合键
+	// （Ctrl+T 新标签页、Ctrl+F 页内查找、Ctrl+P 打印……），Alt 组合键基本都会
+	// 以 ESC 前缀透传。所有 Ctrl 功能键提供 Alt 等价键，普通终端两者皆可。
+	case "ctrl+@", "ctrl+space", "alt+m": // Ctrl+Space：legacy 终端发 NUL 记为 ctrl+@，kitty 协议终端记为 ctrl+space
 		return m, m.toggleMark()
 
-	case "ctrl+t":
+	case "ctrl+t", "alt+t":
 		return m, m.toggleRangeBar()
 
-	case "ctrl+f":
+	case "ctrl+f", "alt+f":
 		return m, m.applyMatchToggle()
 
-	case "ctrl+o":
+	case "ctrl+o", "alt+o":
 		return m, m.openInPager()
 
-	case "ctrl+e":
+	case "ctrl+e", "alt+e":
 		m.recordQuery(m.input.Value())
 		return m, m.openInEditor()
 
-	case "ctrl+y":
+	case "ctrl+y", "alt+y":
 		return m, m.copySelection()
 
-	case "ctrl+g":
+	case "ctrl+g", "alt+g":
 		m.historyOpen = true
 		m.historySel = 0
 		return m, nil
 
-	case "ctrl+b":
+	case "ctrl+b", "alt+b":
 		m.blameOn = !m.blameOn
 		if !m.blameOn {
 			m.blameText = ""
@@ -323,14 +326,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.applyModeToggle()
 
-	case "up", "ctrl+p":
+	case "up", "ctrl+p", "alt+p":
 		if m.sel > 0 {
 			m.sel--
 		}
 		m.adjustOffset()
 		return m, m.followSelection()
 
-	case "down", "ctrl+n":
+	case "down", "ctrl+n", "alt+n":
 		if m.sel < len(m.results)-1 {
 			m.sel++
 		}
@@ -350,6 +353,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	default:
+		// Alt 组合键是命令不是文本，不喂给输入框（避免个别终端把 ESC 序列
+		// 拆出的字符插进搜索词）
+		if strings.HasPrefix(msg.String(), "alt+") {
+			return m, nil
+		}
 		before := m.input.Value()
 		newInput, cmd := m.input.Update(msg)
 		m.input = newInput
