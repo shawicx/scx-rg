@@ -55,6 +55,11 @@ func (m *Model) paletteItems() []paletteItem {
 		}},
 	}
 	// 场景专属条目（编辑器/blame 无快捷键冲突风险也一并提供面板入口）
+	if m.pickerKind != "" {
+		items = append(items, paletteItem{title: "重新选择" + pickerTargetWord(m.pickerKind), keyHint: "Ctrl+R / Alt+R", run: func(m *Model) tea.Cmd {
+			return m.reenterPicker()
+		}})
+	}
 	if m.cfg.EditorCommand != "" {
 		items = append(items, paletteItem{title: "编辑器打开选中", keyHint: "Ctrl+E / Alt+E", run: func(m *Model) tea.Cmd {
 			m.recordQuery(m.input.Value())

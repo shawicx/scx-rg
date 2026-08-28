@@ -161,6 +161,49 @@ func pickerKindLabel(kind string) string {
 	return kind
 }
 
+// pickerTargetWord 源选择器挑选的目标称谓（状态栏/帮助/命令面板用）。
+func pickerTargetWord(kind string) string {
+	if kind == "kubectl" {
+		return "Pod"
+	}
+	return "容器"
+}
+
+// reenterPicker 检索阶段返回源选择器：停掉搜索与跟随进程、清空检索态并
+// 重载源列表（容器可能已增减），供重新选择目标。docker/k8s 会话 Ctrl+R。
+func (m *Model) reenterPicker() tea.Cmd {
+	m.stopSearch()
+	if m.cancelFollow != nil {
+		m.cancelFollow()
+		m.cancelFollow = nil
+	}
+	m.cfg.FollowFile = "" // 跟随轮询与实时滑窗随之停止；重选目标后再登记
+	m.followKeep = ""
+	m.gitLog = false
+	m.rangeBar = false
+	m.input.SetValue("")
+	m.input.Placeholder = "输入名称过滤，实时匹配..."
+	m.input.Focus() // 筛选栏可能已 Blur
+	m.marked = map[string]bool{}
+	m.results = nil
+	m.raw = nil
+	m.tsOK = false
+	m.staleList = false
+	m.sel, m.offset = 0, 0
+	m.vp.SetContent("")
+	m.prevPath = ""
+	m.prevCustom = false
+	m.pickerSrcs = nil
+	m.pickerView = nil
+	m.picking = true
+	m.pickLoading = false
+	m.listLoading = true
+	m.searchErr = nil
+	m.resizeViewport() // 筛选栏关闭后面板高度恢复
+	m.pickerPreview()
+	return m.loadPicker()
+}
+
 // shutdown 退出前清理：杀掉搜索 rg 与跟随进程、落盘搜索历史。幂等。
 func (m *Model) shutdown() {
 	saveHistory(m.history, m.historyCap())

@@ -16,12 +16,16 @@ type helpGroup struct {
 // 堡垒机/浏览器 Web 终端常在按键到达 SSH 会话前截获 Ctrl 组合键
 // （Ctrl+T 新标签页、Ctrl+F 页内查找等），Alt 组合键基本都会透传。
 func (m *Model) helpGroups() []helpGroup {
+	searchRows := [][2]string{
+		{"输入", "实时搜索（防抖）"},
+		{"Esc", "清空输入 → 清空标记 → 退出"},
+	}
+	if m.pickerKind != "" {
+		searchRows = append(searchRows, [2]string{"Ctrl+R / Alt+R", "重新选择" + pickerTargetWord(m.pickerKind) + "（返回选择器）"})
+	}
 	groups := []helpGroup{{
 		title: "搜索",
-		rows: [][2]string{
-			{"输入", "实时搜索（防抖）"},
-			{"Esc", "清空输入 → 清空标记 → 退出"},
-		},
+		rows:  searchRows,
 	}}
 	if m.finder {
 		groups = append(groups, helpGroup{

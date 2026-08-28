@@ -296,6 +296,9 @@ func (m *Model) statusView() string {
 	if m.finder {
 		right = "? 帮助 / Ctrl+Space 标记 / Ctrl+F 匹配 / Enter 输出 / Esc 清空"
 	}
+	if m.pickerKind != "" {
+		right = "? 帮助 / Ctrl+T 筛选 / Ctrl+R 重选" + pickerTargetWord(m.pickerKind) + " / Enter 选定 / Esc 清空"
+	}
 	return m.statusLine(left, right)
 }
 

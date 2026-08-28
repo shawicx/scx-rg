@@ -261,3 +261,65 @@ func TestPickerCtrlRRefreshes(t *testing.T) {
 		t.Fatalf("刷新后应 3 个容器, 得到 %d", len(m.pickerView))
 	}
 }
+
+// 检索阶段可用 Ctrl+R 返回选择器重选目标（此前一旦选中容器就无法重选）。
+func TestReenterPickerFromLogSearch(t *testing.T) {
+	if !search.RgAvailable() {
+		t.Skip("rg 未安装")
+	}
+	var fetched []string
+	cfg := Config{
+		PickerKind:  "docker",
+		SnapshotDir: t.TempDir(),
+		Mode:        ModeContent,
+		ImgProto:    preview.ProtocolNone,
+		RgAvailable: true,
+		ListSources: func(ctx context.Context, kind string) ([]logs.Source, error) {
+			return pickerTestSources, nil
+		},
+		FetchLog: func(ctx context.Context, tgt logs.Target) (string, error) {
+			fetched = append(fetched, tgt.Name)
+			f, err := os.CreateTemp("", "snap-*.log")
+			if err != nil {
+				return "", err
+			}
+			_, _ = f.WriteString("log of " + tgt.Name + "\n")
+			_ = f.Close()
+			return f.Name(), nil
+		},
+	}
+	m := newPickerModel(t, cfg)
+	m.drain(m.Init())
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // 选 web
+	m.drain(cmd)
+	if m.picking || m.cfg.Title != "docker:web" {
+		t.Fatalf("前置: 应已进入检索, picking=%v title=%q", m.picking, m.cfg.Title)
+	}
+
+	// Ctrl+R 返回选择器并重载列表
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	if !m.picking {
+		t.Fatal("Ctrl+R 应返回选择器阶段")
+	}
+	if len(m.results) != 0 {
+		t.Fatal("返回选择器应清空检索结果")
+	}
+	m.drain(cmd)
+	if len(m.pickerView) != 3 {
+		t.Fatalf("返回后应重载 3 个容器, 得到 %d", len(m.pickerView))
+	}
+
+	// 过滤后重选另一个容器，正常切入检索
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "worker"})
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m.drain(cmd)
+	if m.picking || m.cfg.Title != "docker:worker" {
+		t.Fatalf("重选后应切入 worker 检索, picking=%v title=%q", m.picking, m.cfg.Title)
+	}
+	if len(fetched) != 2 || fetched[1] != "worker" {
+		t.Fatalf("应抓取 worker 的日志: %v", fetched)
+	}
+	if len(m.results) != 1 || !strings.Contains(m.results[0].Text, "log of worker") {
+		t.Fatalf("重选后应显示 worker 日志: %+v", m.results)
+	}
+}

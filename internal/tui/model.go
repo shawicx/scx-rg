@@ -225,12 +225,14 @@ type Model struct {
 	rangeBar    bool             // 筛选栏打开且聚焦
 	rangeSeg    int              // 0=时间 1=条数 2=Git
 	rangeSel    [3]int           // 各段的光标位置
+	capChosen   bool             // 用户在条数段显式选过档位（实时默认不再覆盖）
 	filterDur   time.Duration    // 时间筛选，0=全部
 	filterCap   int              // 条数封顶（保留最新 N 条），0=全部
 	raw         []search.Result  // 未过滤结果缓冲（与流式封顶一致）
 	tsOK        bool             // 本轮结果中检测到行首时间戳
 	windowed    bool             // 日志模式：命中超窗，列表冻结待流结束重算为最新窗口
 	liveTicking bool             // 实时滑动窗口的 tick 链运转中
+	staleList   bool             // 搜索已发起但新结果未达：展示的仍是上一轮（防闪烁）
 	now         func() time.Time // 可注入时钟（测试模拟时间流逝）
 
 	// Git 筛选（Ctrl+T 第三段）：gitKnown 标记探测完成（含失败），
@@ -368,7 +370,8 @@ func (m *Model) provider() search.Provider {
 }
 
 // runSearch 基于当前查询发起搜索：先取消上一轮（流式会立刻杀掉 rg 进程），
-// 清空列表与预览，再按 Provider 类型走同步或流式路径。
+// 再按 Provider 类型走同步或流式路径。旧结果保持可见直到新一轮首个回包
+// 到达（见 commitSearchResults），避免「清空 → 搜索中 → 回填」整屏闪烁。
 func (m *Model) runSearch() tea.Cmd {
 	if m.cancelSearch != nil {
 		m.cancelSearch()
@@ -378,15 +381,8 @@ func (m *Model) runSearch() tea.Cmd {
 	m.version++
 	v := m.version
 
-	m.results = nil
-	m.raw = nil
-	m.tsOK = false
-	m.windowed = false
+	m.staleList = true
 	m.notice = ""
-	m.sel, m.offset = 0, 0
-	m.vp.SetContent("")
-	m.prevPath = ""
-	m.prevCustom = false
 	m.searchErr = nil
 	m.fallbackActive = false
 
@@ -410,6 +406,24 @@ func (m *Model) runSearch() tea.Cmd {
 		res, err := sync.Search(ctx, root, q)
 		return resultsMsg{version: v, results: res, err: err}
 	}
+}
+
+// commitSearchResults 新一轮搜索的首个回包（resultsMsg/resultMsg/streamDoneMsg）
+// 到达时丢弃上一轮的展示残留（列表/预览/缓冲/选中位）并原子换上新结果；
+// 此前旧结果保持可见，输入变更不再整屏闪烁。
+func (m *Model) commitSearchResults() {
+	if !m.staleList {
+		return
+	}
+	m.staleList = false
+	m.results = nil
+	m.raw = nil
+	m.tsOK = false
+	m.windowed = false
+	m.sel, m.offset = 0, 0
+	m.vp.SetContent("")
+	m.prevPath = ""
+	m.prevCustom = false
 }
 
 // startStreamSearch 发起流式搜索（runSearch 与文件名回退共用；provider

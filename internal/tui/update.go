@@ -43,6 +43,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.version != m.version {
 			return m, nil // 过期结果
 		}
+		m.commitSearchResults() // 换下上一轮展示（防闪烁的原子替换点）
 		m.searching = false
 		m.searchErr = msg.err
 		m.raw = msg.results
@@ -115,6 +116,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.version != m.version {
 			return m, nil // 过期结果
 		}
+		m.commitSearchResults() // 新轮首条到达：换下旧列表，此后逐条追加
 		if msg.result.Err != nil {
 			// 搜索本身失败（如非法正则）：终止消费并展示错误
 			m.searchErr = msg.result.Err
@@ -159,6 +161,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.version != m.version {
 			return m, nil
 		}
+		m.commitSearchResults() // 零命中流：首个回包即结束，清掉旧列表
 		m.stopSearch()
 		var cmd tea.Cmd
 		if m.windowed {
@@ -293,6 +296,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case "ctrl+t", "alt+t":
 		return m, m.toggleRangeBar()
+
+	case "ctrl+r", "alt+r": // docker/k8s 会话：返回选择器重选目标（选择器内同键=刷新列表）
+		if m.pickerKind != "" {
+			return m, m.reenterPicker()
+		}
+		return m, nil
 
 	case "ctrl+f", "alt+f":
 		return m, m.applyMatchToggle()

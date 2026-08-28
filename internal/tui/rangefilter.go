@@ -32,10 +32,17 @@ var rangeCapPresets = []struct {
 	n     int
 }{
 	{"全部", 0},
+	{"20条", 20},
+	{"50条", 50},
 	{"100条", 100},
 	{"500条", 500},
 	{"5000条", 5000},
 }
+
+const (
+	liveDurIdx     = 0 // 「实时」在时间预设中的下标（滑动窗口预设）
+	defaultLiveCap = 50 // 时间=实时且条数停在「全部」时收窄到的默认档
+)
 
 // lineTimeLayouts 行首时间戳的候选格式。时间.Parse 对无时区格式按 UTC 解析，
 // syslog 这类缺年份的格式解析后年份为 0，用当年补齐。
@@ -199,8 +206,17 @@ func (m *Model) handleRangeBarKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // applyGitFilter（异步拉文件集）；跟随模式下时间筛选激活时启动实时滑窗
 // 的 tick 链。
 func (m *Model) rangeChipApply() tea.Cmd {
+	if m.rangeSeg == 1 {
+		m.capChosen = true // 用户在条数段显式选档（左移右移都算），实时默认不再覆盖
+	}
 	m.filterDur = rangeDurPresets[m.rangeSel[0]].d
 	m.filterCap = rangeCapPresets[m.rangeSel[1]].n
+	// 时间切到「实时」且条数还停在默认「全部」时，自动收窄到 50 条：
+	// 实时滑窗持续滚动，全量命中会不断刷屏；用户显式选过其他档位则不覆盖。
+	if m.rangeSel[0] == liveDurIdx && m.filterCap == 0 && !m.capChosen {
+		m.rangeSel[1] = capPresetIndex(defaultLiveCap)
+		m.filterCap = defaultLiveCap
+	}
 	if git := rangeGitPresets[m.rangeSel[2]].n; git != m.gitFilter {
 		return m.applyGitFilter(git)
 	}

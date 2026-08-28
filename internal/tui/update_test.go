@@ -96,15 +96,63 @@ func TestNewSearchResetsListAndCancelsPreviousStream(t *testing.T) {
 	if m.searching != true {
 		t.Fatal("新搜索开始时 searching 应为 true")
 	}
-	if len(m.results) != 0 {
-		t.Fatal("新搜索开始时应清空旧结果列表")
+	if len(m.results) != 2 {
+		t.Fatal("新搜索进行中旧列表应保持可见（防闪烁）")
 	}
-	if m.prevPath != "" {
-		t.Fatal("新搜索开始时应清空预览")
+	if m.prevPath != "a.txt" {
+		t.Fatal("新搜索进行中预览应保持，不应闪回占位符")
 	}
 	m.drain(cmd)
 	if len(m.results) != 2 {
 		t.Fatalf("新查询流式结果 = %d, 期望 2", len(m.results))
+	}
+	if m.sel != 0 || m.offset != 0 {
+		t.Fatalf("新结果到达后选中位应重置, sel=%d offset=%d", m.sel, m.offset)
+	}
+}
+
+// 输入变更触发的新搜索：结果到达前列表与预览保持旧内容，新结果首条到达时
+// 原子替换——「清空 → 搜索中 → 回填」的整屏闪烁（日志/跟随场景尤其明显）
+// 是 runSearch 立即清空列表导致的。
+func TestNewSearchKeepsOldListUntilResultsArrive(t *testing.T) {
+	m := newContentModel(t, map[string]string{"a.txt": "needle one\nneedle two\n"})
+	m.input.SetValue("needle")
+	triggerSearch(m)
+	if len(m.results) != 2 || m.prevPath != "a.txt" {
+		t.Fatalf("前置: 2 条结果且预览跟随, 得到 %d 条 prevPath=%q", len(m.results), m.prevPath)
+	}
+
+	m.input.SetValue("nee")
+	m.version++
+	cmd := m.runSearch()
+	if !m.searching {
+		t.Fatal("前置: searching 应为 true")
+	}
+	if len(m.results) != 2 {
+		t.Fatalf("搜索进行中旧列表应保持可见, 得到 %d 条", len(m.results))
+	}
+	if m.prevPath != "a.txt" {
+		t.Fatalf("搜索进行中预览不应闪回占位符, prevPath=%q", m.prevPath)
+	}
+	m.drain(cmd)
+	if len(m.results) != 2 {
+		t.Fatalf("新查询结果 = %d, 期望 2", len(m.results))
+	}
+}
+
+// 新查询零命中：流结束（首个回包）时清掉旧列表与 raw，不留上一查询残留。
+func TestNewSearchZeroMatchClearsStaleList(t *testing.T) {
+	m := newContentModel(t, map[string]string{"a.txt": "needle\n"})
+	m.input.SetValue("needle")
+	triggerSearch(m)
+	if len(m.results) != 1 {
+		t.Fatalf("前置: 1 条, 得到 %d", len(m.results))
+	}
+	m.input.SetValue("zzz_no_hit")
+	m.version++
+	m.drain(m.runSearch())
+	if len(m.results) != 0 || len(m.raw) != 0 {
+		t.Fatalf("零命中应清空列表与 raw: results=%d raw=%d", len(m.results), len(m.raw))
 	}
 }
 

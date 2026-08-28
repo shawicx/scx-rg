@@ -23,6 +23,52 @@ func TestRangePresetsIncludeLive(t *testing.T) {
 	}
 }
 
+func TestRangeCapPresetsInclude20And50(t *testing.T) {
+	want := []int{0, 20, 50, 100, 500, 5000}
+	if len(rangeCapPresets) != len(want) {
+		t.Fatalf("条数预设应 %d 档, 得到 %d: %+v", len(want), len(rangeCapPresets), rangeCapPresets)
+	}
+	for i, p := range rangeCapPresets {
+		if p.n != want[i] {
+			t.Fatalf("条数预设[%d] = %d, 期望 %d", i, p.n, want[i])
+		}
+	}
+}
+
+// 时间切到「实时」且条数仍为默认「全部」时，条数自动收窄到 50 条
+// （实时滑窗持续滚动，全量命中会刷屏）；用户显式选过其他条数则不覆盖。
+func TestLiveChipDefaultsCapTo50(t *testing.T) {
+	m := newContentModel(t, map[string]string{"a.txt": "ERROR one\n"})
+	m.input.SetValue("ERROR")
+	triggerSearch(m)
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft}) // 时间: 全部 → 实时
+	if m.filterDur != 30*time.Second {
+		t.Fatalf("filterDur = %v, 期望 30s（实时）", m.filterDur)
+	}
+	if m.filterCap != 50 {
+		t.Fatalf("时间=实时时条数应默认 50条, 得到 %d", m.filterCap)
+	}
+	if m.rangeSel[1] != capPresetIndex(50) {
+		t.Fatalf("条数光标应同步到 50条(索引 %d), 得到 %d", capPresetIndex(50), m.rangeSel[1])
+	}
+
+	// 用户显式改条数为「全部」后，时间再切回实时不覆盖用户选择
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // 时间: 实时 → 全部
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})  // 切到条数段
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})  // 50条 → 20条
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})  // 20条 → 全部
+	if m.filterCap != 0 {
+		t.Fatalf("显式选回「全部」应生效, 得到 %d", m.filterCap)
+	}
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})   // 回时间段
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft}) // 全部 → 实时
+	if m.filterCap != 0 {
+		t.Fatalf("用户显式选过「全部」后切实时不应覆盖, 得到 %d", m.filterCap)
+	}
+}
+
 func TestLiveChipActivation(t *testing.T) {
 	m := newContentModel(t, map[string]string{"a.txt": "ERROR one\n"})
 	m.input.SetValue("ERROR")
@@ -227,8 +273,10 @@ func TestRangeBarCapKeepsLatest(t *testing.T) {
 	}
 
 	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
-	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})  // 切到「条数」段
-	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // 全部 → 100条
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // 切到「条数」段
+	for i := 0; i < 3; i++ {
+		_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // 全部 → 20条 → 50条 → 100条
+	}
 	if m.filterCap != 100 {
 		t.Fatalf("filterCap = %d, 期望 100", m.filterCap)
 	}
