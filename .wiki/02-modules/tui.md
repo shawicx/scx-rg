@@ -44,9 +44,9 @@
 ## 按键路由优先级（handleKey，update.go）
 
 ```text
-0. m.liveMode     → handleLiveKey（实时多面板独占：焦点滚动/切换、y 复制、
+0. m.picking      → handlePickerKey（源选择器独占：Tab 多选、Enter 进实时/快照）
+1. m.liveMode     → handleLiveKey（实时多面板独占：焦点滚动/切换、y 复制、
                     Ctrl+R 重选、? 帮助接管）
-1. m.picking      → handlePickerKey（源选择器独占：Tab 多选、Enter 进实时/快照）
 2. m.rangeBar     → handleRangeBarKey（筛选栏聚焦）
 3. paletteOpen / historyOpen / pipeOpen / dirOpen / replaceOpen / astMode
                   → 各浮层按键处理（互斥，按此顺序短路）

@@ -15,7 +15,7 @@ scx-rg docker <容器名> --snapshot     # 旧流程:一次性快照 + 检索界
 scx-rg k8s                           # 选择器(Pod,Tab 多选 ≤4)
 scx-rg k8s <Pod名> [-n namespace] [-c 容器] [--snapshot]
 
-scx-rg <落盘文件>                     # 默认命令检索实时会话留下的日志
+scx-rg -path <落盘目录>               # 默认命令检索实时会话留下的日志(内容模式加 -mode content)
 scx-rg --follow <落盘文件>            # 边跟边搜(实时会话还在跑时效果最佳)
 scx-rg --follow /var/log/app.log     # 本地服务器日志实时跟随(不受影响)
 ```
@@ -48,8 +48,8 @@ scx-rg --follow /var/log/app.log     # 本地服务器日志实时跟随(不受�
 实时会话的落盘文件是普通文件(且路径稳定可预测),默认命令全功能可用:
 
 ```bash
-scx-rg ~/Library/Caches/scx-rg/logs/docker/web.log           # 检索落盘日志(留空即全量)
-scx-rg --follow ~/Library/Caches/scx-rg/logs/docker/web.log  # 边跟边搜
+scx-rg -path ~/Library/Caches/scx-rg/logs/docker -mode content   # 检索落盘日志(查询留空即全量)
+scx-rg --follow ~/Library/Caches/scx-rg/logs/docker/web.log      # 边跟边搜
 ```
 
 - **边跟边搜**:`--follow` 下界面每 800ms 检测文件增长并自动重跑当前查询,**保持你的选中位置**,状态栏显示「* 跟随 / 大小」

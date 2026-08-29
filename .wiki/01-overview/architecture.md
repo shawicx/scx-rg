@@ -95,7 +95,7 @@ main.runLogSource → Available 预检 → LiveDir=UserCacheDir/scx-rg/logs（Mk
   → tui.startLive([]logs.Target)：每面板一个 logs.Stream 进程（logs -f --timestamps --tail）
       行回调 → linesCh → batcher 100ms 批量窗口 → liveLinesMsg（100ms/200 行先到先冲）
       进程收束 → liveDoneMsg（err=nil 容器停止；err!=nil 启动失败——stderr 已合流入面板）
-      同时 tee 落盘 LivePath（O_TRUNC 起笔，bufio 随批刷新）
+      同时 tee 落盘 LivePath（O_TRUNC 起笔，bufio 缓冲满或流结束时刷盘）
   → liveView 分屏渲染（1/2/3/4 面板）→ Ctrl+R reenterPicker / Ctrl+C stopLive 清场
   → 落盘文件留给默认 scx-rg 命令检索（--follow 边跟边搜，走 2 号搜索链 + follow 轮询）
 ```

@@ -94,7 +94,7 @@ Git    全部  仅改动  仅暂存   （git 仓库内第三段）
 ```bash
 scx-rg docker [名字] [--snapshot]   # 默认实时多面板（选择器 Tab 多选 ≤4 或名字直达）
 scx-rg k8s [Pod] [-n ns] [-c 容器]
-scx-rg <落盘文件>                    # 默认命令检索实时会话留下的日志
+scx-rg -path <落盘目录>              # 默认命令检索实时会话留下的日志（内容模式加 -mode content）
 scx-rg --follow <落盘文件>           # 边跟边搜（800ms 轮询增长重跑查询）
 scx-rg --follow /var/log/app.log    # 本地文件跟随（不受影响）
 ```
