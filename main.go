@@ -248,7 +248,7 @@ func runLogSource(kind string, args []string) {
 	}
 
 	// 实时模式：tee 落盘 os.UserCacheDir()/scx-rg/logs（稳定路径，
-	// 默认命令/–-follow 可直接检索）；实时视图本身不依赖 rg。
+	// 默认命令/--follow 可直接检索）；实时视图本身不依赖 rg。
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		die(err)
@@ -269,6 +269,10 @@ func runLogSource(kind string, args []string) {
 	if len(rest) > 0 {
 		target.Name = rest[0]
 		cfg.LiveTargets = []logs.Target{target} // 跳过选择器直达单面板
+		// LivePick 直达也须置位：Ctrl+R 重进选择器时 Tab 多选与 Enter 回
+		// 实时都依赖它，缺失会退化成 --snapshot 快照语义，与状态栏
+		// 「Ctrl+R 重选」提示矛盾。
+		cfg.LivePick = true
 		fmt.Fprintf(os.Stderr, "实时日志 %s %s（落盘 %s，Ctrl+C 退出）…\n",
 			kind, target.Name, logs.LivePath(liveDir, target))
 	} else {

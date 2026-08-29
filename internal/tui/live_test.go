@@ -127,6 +127,60 @@ func TestLiveReenterPickerStopsStreams(t *testing.T) {
 	}
 }
 
+// TestLiveDirectKeepsPickerKind 直达实时（LiveTargets 非空）必须保留
+// pickerKind：头部徽标与实时状态栏都按它渲染 kind，缺失时显示「 实时  」
+// 空缺；Ctrl+R 重选的列源类型同样依赖（见 TestLiveDirectReenterStaysLive）。
+func TestLiveDirectKeepsPickerKind(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}},
+		fakeStream(map[string][]string{"web": {"l"}}))
+	m.drain(m.Init())
+	if m.pickerKind != "docker" {
+		t.Fatalf("直达实时应保留 pickerKind, got %q", m.pickerKind)
+	}
+	if f := m.frame(); !strings.Contains(f, "实时 docker") {
+		t.Fatalf("帧内徽标应含 kind（实时 docker）:\n%s", f)
+	}
+}
+
+// TestLiveDirectReenterStaysLive 直达实时会话 Ctrl+R 重进选择器后必须保持
+// 实时语义：pickerKind 决定重选列源类型（k8s 会话不得误列 docker 容器），
+// LivePick 决定 Enter 分流——回实时多面板而非退化成 --snapshot 快照检索。
+func TestLiveDirectReenterStaysLive(t *testing.T) {
+	m := New(Config{
+		PickerKind:  "docker",
+		LivePick:    true,
+		LiveDir:     t.TempDir(),
+		LiveTargets: []logs.Target{{Kind: "docker", Name: "web"}},
+		Mode:        ModeContent,
+		StreamLog:   fakeStream(map[string][]string{"web": {"l"}}),
+		ListSources: func(ctx context.Context, kind string) ([]logs.Source, error) {
+			if kind != "docker" {
+				t.Errorf("重选列源应以会话原 kind（docker）, got %q", kind)
+			}
+			return []logs.Source{{Target: logs.Target{Kind: "docker", Name: "web"}}}, nil
+		},
+	})
+	m.onceMode = true // drain 同步驱动
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.drain(m.Init())
+	if !m.liveMode {
+		t.Fatal("LiveTargets 非空应直达实时")
+	}
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m.drain(cmd)
+	if !m.picking {
+		t.Fatal("Ctrl+R 应回到选择器")
+	}
+	if len(m.pickerView) != 1 {
+		t.Fatalf("重选应加载源列表, got %d", len(m.pickerView))
+	}
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m.drain(cmd)
+	if !m.liveMode {
+		t.Fatal("LivePick 会话 Enter 应回实时而非快照")
+	}
+}
+
 // liveFrame 构造确定性的实时模式整帧：面板按名字排序（golden 稳定），
 // fakeStream 注入固定行后立即收束（无真实 docker 依赖）。
 func liveFrame(t *testing.T, panels map[string][]string) string {

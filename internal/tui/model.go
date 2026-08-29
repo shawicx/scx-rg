@@ -307,10 +307,15 @@ func New(cfg Config) *Model {
 			m.followSize = st.Size() // 以当前大小为基线，之后增长才触发刷新
 		}
 	}
+	// pickerKind 不与「进选择器」捆绑：LiveTargets 直达实时的会话同样需要
+	// kind——头部徽标、实时状态栏与 Ctrl+R 重选的列源类型（loadPicker）都
+	// 读它；缺失时徽标 kind 空缺，k8s 直达会话重选还会误列 docker 容器。
+	if cfg.PickerKind != "" {
+		m.pickerKind = cfg.PickerKind
+	}
 	// PickerKind 与 LiveTargets 互斥：LiveTargets 非空时直达实时不进选择器
 	if cfg.PickerKind != "" && len(cfg.LiveTargets) == 0 {
 		m.picking = true
-		m.pickerKind = cfg.PickerKind
 		m.snapshotDir = cfg.SnapshotDir
 		m.listLoading = true
 		m.mode = ModeContent
