@@ -173,6 +173,7 @@ func pickerTargetWord(kind string) string {
 // 重载源列表（容器可能已增减），供重新选择目标。docker/k8s 会话 Ctrl+R。
 func (m *Model) reenterPicker() tea.Cmd {
 	m.stopSearch()
+	m.stopLive() // 实时会话停流清面板（docker/k8s 实时 → 回选择器重选）
 	if m.cancelFollow != nil {
 		m.cancelFollow()
 		m.cancelFollow = nil
@@ -204,10 +205,11 @@ func (m *Model) reenterPicker() tea.Cmd {
 	return m.loadPicker()
 }
 
-// shutdown 退出前清理：杀掉搜索 rg 与跟随进程、落盘搜索历史。幂等。
+// shutdown 退出前清理：杀掉搜索 rg 与跟随进程、停实时流、落盘搜索历史。幂等。
 func (m *Model) shutdown() {
 	saveHistory(m.history, m.historyCap())
 	m.stopSearch()
+	m.stopLive()
 	if m.cancelFollow != nil {
 		m.cancelFollow()
 		m.cancelFollow = nil

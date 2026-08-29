@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
@@ -26,6 +27,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prevW = max(0, m.frameW()-m.listW)
 		m.input.SetWidth(max(10, m.width-16))
 
+		// 实时模式面板独立布局（不分列表/预览栏），分流后不再动检索视口
+		if m.liveMode {
+			m.resizeLivePanels()
+			return m, nil
+		}
 		m.resizeViewport()
 		if m.prevPath != "" {
 			m.prevLoading = true
@@ -71,6 +77,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case snapshotReadyMsg:
 		return m, m.handleSnapshotReady(msg)
+
+	case liveLinesMsg:
+		if msg.seq != m.liveSeq || msg.panel >= len(m.livePanels) {
+			return m, nil // 跨会话串扰：丢弃且不续读（旧读链就此收束）
+		}
+		p := m.livePanels[msg.panel]
+		p.appendLines(msg.lines)
+		if p.follow {
+			p.rebuild()
+		}
+		return m, m.waitLiveLines(m.liveCh)
+
+	case liveDoneMsg:
+		if msg.seq != m.liveSeq || msg.panel >= len(m.livePanels) {
+			return m, nil
+		}
+		p := m.livePanels[msg.panel]
+		p.exited = true
+		// logs.Stream 取消时返回 nil，Canceled 分支实为冗余防御，保留
+		if msg.err != nil && msg.err != context.Canceled {
+			p.appendLines([]string{"⚠ " + msg.err.Error()})
+			p.rebuild()
+		}
+		if !m.allLiveDone() {
+			return m, m.waitLiveLines(m.liveCh)
+		}
+		return m, nil // 全部收束：读链结束（面板仍可翻阅）
 
 	case followTickMsg:
 		return m, m.handleFollowTick()
@@ -202,6 +235,9 @@ func (m *Model) resizeViewport() {
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.picking {
 		return m.handlePickerKey(msg)
+	}
+	if m.liveMode {
+		return m.handleLiveKey(msg)
 	}
 	if m.rangeBar {
 		return m.handleRangeBarKey(msg)
