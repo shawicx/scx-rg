@@ -220,6 +220,10 @@ func TestLiveRenderTwoPanels(t *testing.T) {
 func TestLiveGolden(t *testing.T) {
 	goldenFrame(t, "live-1", liveFrame(t, map[string][]string{"web": {"2026-08-30T10:00:00Z hello", "2026-08-30T10:00:01Z world"}}))
 	goldenFrame(t, "live-2", liveFrame(t, map[string][]string{"api": {"api-line"}, "web": {"web-line"}}))
+	// live-3 是唯一非对称布局（上 1 全宽 + 下 2 左右），必须有视觉基线
+	goldenFrame(t, "live-3", liveFrame(t, map[string][]string{
+		"api": {"api-line"}, "cache": {"cache-line"}, "web": {"web-line"},
+	}))
 	goldenFrame(t, "live-4", liveFrame(t, map[string][]string{
 		"a1": {"line-a"}, "b2": {"line-b"}, "c3": {"line-c"}, "d4": {"line-d"},
 	}))
@@ -351,5 +355,42 @@ func TestLivePausedScrollSyncsNewLines(t *testing.T) {
 	want := max(0, len(p.buf)-p.vp.Height())
 	if !p.follow || p.vp.YOffset() != want {
 		t.Fatalf("G 应回到含新行的缓冲底部: follow=%v y=%d want=%d", p.follow, p.vp.YOffset(), want)
+	}
+}
+
+// TestLivePausedGotoTopSyncsNewLines g/Home 到顶与 G 回底同理须先对齐内容：
+// 偏移 0 并不免除 SetContentLines——暂停期间新行只入缓冲不重建视口（且
+// 环形窗口可能已淘汰旧行），直接对冻结内容 SetYOffset(0) 显示的是过期
+// 窗口顶，视口行数与 buf 脱节就是下次按键跳变的前兆。
+func TestLivePausedGotoTopSyncsNewLines(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}},
+		func(ctx context.Context, tgt logs.Target, tail int, path string, onLine func(string)) error {
+			for i := 0; i < 60; i++ {
+				onLine(fmt.Sprintf("line-%02d", i))
+			}
+			return nil // 短流收束：缓冲定格，后续行由测试直接注入消息
+		})
+	m.drain(m.Init())
+	p := m.livePanels[0]
+	p.vp.SetYOffset(0)
+	p.follow = false
+	// 暂停期间新行到达：只入缓冲，视口内容冻结在暂停时刻
+	_, _ = m.Update(liveLinesMsg{seq: m.liveSeq, panel: 0, lines: []string{"extra"}})
+	if p.vp.TotalLineCount() == len(p.buf) {
+		t.Fatal("前置失效：暂停后视口内容应仍冻结（未同步新行）")
+	}
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyHome})
+	if p.follow || p.vp.YOffset() != 0 {
+		t.Fatalf("Home 应到顶并暂停跟随: follow=%v y=%d", p.follow, p.vp.YOffset())
+	}
+	if p.vp.TotalLineCount() != len(p.buf) {
+		t.Fatalf("到顶前视口应与缓冲对齐: 视口=%d buf=%d", p.vp.TotalLineCount(), len(p.buf))
+	}
+	if got := p.vp.GetContent(); !strings.HasPrefix(got, p.buf[0]) {
+		t.Fatalf("视口顶应是缓冲首行（对齐后到顶）: got %q want 首行 %q", got, p.buf[0])
+	}
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'g'})
+	if p.vp.YOffset() != 0 || p.follow {
+		t.Fatalf("g 与 Home 应同效: follow=%v y=%d", p.follow, p.vp.YOffset())
 	}
 }

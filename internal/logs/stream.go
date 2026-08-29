@@ -13,29 +13,45 @@ import (
 
 // streamLoop 逐行读 rc：每行剥掉行尾 CR/LF 后回调 onLine，同时以 LF 行
 // 形式写入 path（O_TRUNC 起笔——实时会话的落盘从本次跟随开始，非历史拼接）。
-// 读到 EOF 返回 nil；扫描/写盘失败返回错误。
+// 读到 EOF 返回 nil；扫描失败返回错误。
+// 落盘是逐行同步写、不经 bufio 缓冲：tee 文件的增长就是外部读端
+// （`scx-rg --follow <落盘文件>`）检测新行的信号，缓冲到流结束才 Flush
+// 会让活跃会话的落盘恒缺最新 <4KB，边跟边搜等于盲区；日志行频远低于
+// 终端刷新量，逐行 write 的系统调用开销可忽略。
+// 落盘失败被隔离而非上抛（spec §9：落盘失败不影响面板渲染）：首次失败
+// （含 OpenFile 失败）以 ⚠ 行经 onLine 通知面板后一次性放弃落盘，扫描
+// 与回调继续，流正常收束仍返回 nil——错误已作为日志行呈现，若再以返回
+// 值上抛会杀掉整条流，面板反而丢日志。
 func streamLoop(rc io.Reader, path string, onLine func(string)) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	// tee 为 nil 即「已停止落盘」：OpenFile 失败时 f 本就是 nil，首次
+	// 写失败后置空——磁盘满/权限回收这类故障不会自愈，逐行重试只会
+	// 反复报错，一次性降级为纯回调。
+	tee := f
 	if err != nil {
-		return err
+		if onLine != nil {
+			onLine("⚠ 落盘写入失败，已停止落盘: " + err.Error())
+		}
+	} else {
+		defer f.Close()
 	}
-	defer f.Close()
-	bw := bufio.NewWriter(f)
 	sc := bufio.NewScanner(rc)
 	sc.Buffer(make([]byte, 64*1024), 1024*1024) // 日志单行可达 MB 级
 	for sc.Scan() {
 		line := strings.TrimSuffix(sc.Text(), "\r")
-		if _, err := bw.WriteString(line + "\n"); err != nil {
-			return err
+		if tee != nil {
+			if _, werr := tee.WriteString(line + "\n"); werr != nil {
+				tee = nil
+				if onLine != nil {
+					onLine("⚠ 落盘写入失败，已停止落盘: " + werr.Error())
+				}
+			}
 		}
 		if onLine != nil {
 			onLine(line)
 		}
 	}
-	if err := sc.Err(); err != nil {
-		return err
-	}
-	return bw.Flush()
+	return sc.Err()
 }
 
 // Stream 启动 `logs -f` 长驻进程（初始 tail 行与后续新行都流经输出流），

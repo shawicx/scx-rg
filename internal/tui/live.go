@@ -419,9 +419,15 @@ func (m *Model) handleLiveKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.gotoLiveBottom()
 		return m, nil
 	case "g", "home":
-		// 到顶即暂停跟随（顶部必然离开底部）；偏移 0 无须先对齐内容
+		// 到顶即暂停跟随（顶部必然离开底部）。先对齐内容再置 0 与
+		// scrollLive/gotoLiveBottom 同理，偏移 0 并不免除对齐：暂停期间
+		// 新行只入缓冲不重建视口（liveLinesMsg 仅 follow 时 rebuild），
+		// 视口内容冻结在暂停时刻且 buf 可能已被环形窗口裁剪——直接对
+		// 旧内容 SetYOffset(0) 显示的是过期窗口顶，下次任何滚动按键
+		// 对齐内容后即跳变。
 		if p := m.focusPanel(); p != nil {
 			p.follow = false
+			p.vp.SetContentLines(p.buf)
 			p.vp.SetYOffset(0)
 		}
 		return m, nil
