@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,5 +50,37 @@ func TestLivePath(t *testing.T) {
 	}
 	if p := LivePath("/cache", Target{Kind: "kubectl", Name: "pod-1", Namespace: "prod"}); p != "/cache/kubectl/prod/pod-1.log" {
 		t.Fatalf("kubectl 指定 ns: %s", p)
+	}
+}
+
+func TestStreamCommandMergesStderr(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "web.log")
+	var got []string
+	err := streamCommand(context.Background(), "sh", []string{"-c", "echo out-line; echo err-line >&2"}, path, func(l string) { got = append(got, l) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, "|")
+	if !strings.Contains(joined, "out-line") || !strings.Contains(joined, "err-line") {
+		t.Fatalf("stdout/stderr 应合流进回调: %v", got)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "out-line") || !strings.Contains(string(b), "err-line") {
+		t.Fatalf("tee 文件应同时含两流: %q", b)
+	}
+}
+
+func TestStreamCommandErrorExit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "web.log")
+	var got []string
+	err := streamCommand(context.Background(), "sh", []string{"-c", "echo boom >&2; exit 3"}, path, func(l string) { got = append(got, l) })
+	if err == nil {
+		t.Fatal("非零退出且非 ctx 取消应返回错误")
+	}
+	if !strings.Contains(strings.Join(got, "|"), "boom") {
+		t.Fatalf("stderr 错误文本应作为日志行入流: %v", got)
 	}
 }
