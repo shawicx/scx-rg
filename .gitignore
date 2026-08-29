@@ -7,3 +7,7 @@ dist/
 RELEASE_NOTES.md
 
 .zcode
+
+# astro 文档站(docs/)
+docs/node_modules/
+docs/.astro/

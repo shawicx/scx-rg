@@ -22,11 +22,12 @@ scx-rg docker（无名字）
       Enter → fetchTarget 抓日志落临时目录（SnapshotDir，退出自动清理）
   → 阶段2 检索态：Root=临时目录 + ModeContent + FollowFile(跟随模式) + PickLine
       （Enter 输出选中日志行文本而非路径；日志文件路径对用户无意义）
+      Ctrl+R → reenterPicker 回到阶段1（停搜索与跟随进程、清检索态、重载源列表）
 
 scx-rg docker <名字>   跳过阶段1直达（stderr 提示后先抓再进 TUI）
 ```
 
-docker/k8s 模式强制 `ImgProto=ProtocolNone`（临时日志不预览图片）。
+docker/k8s 模式强制 `ImgProto=ProtocolNone`（临时日志不预览图片）。`Ctrl+R` 一键双义：picker 阶段=刷新列表（`handlePickerKey`），检索阶段=返回选择器（`handleKey` 判 `pickerKind != ""`）。
 
 ## 跟随模式（tui/follow.go）
 

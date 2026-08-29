@@ -51,10 +51,12 @@ testdata/                demo.png（图片实测素材）；golden 基线在 int
 ```text
 tea.KeyMsg → Model.handleKey (update.go)
   → 输入变化: version++ → tickDebounce(200ms) → debounceMsg → runSearch
-  → runSearch: cancelSearch 杀旧 rg → 按 provider 分流
+  → runSearch: cancelSearch 杀旧 rg → staleList=true（旧列表保持可见，防闪烁）
+               → 按 provider 分流
       files/finder(同步): FilesProvider/ListProvider.Search → resultsMsg
       content(流式): RipgrepProvider.SearchStream → waitForResult 逐条 → resultMsg
                        channel 关闭 → streamDoneMsg
+  → 首个回包(resultsMsg/resultMsg/streamDoneMsg): commitSearchResults 原子换下旧列表
   → resultsMsg: refilter(false) 应用客户端筛选 → followSelection
   → 文件名零命中(content 除外): startFallbackStream 自动全文回退
 ```

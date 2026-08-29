@@ -1,0 +1,6 @@
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@astrojs/starlight@0.41.10'
+packages:
+  - .
