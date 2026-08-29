@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -123,4 +124,48 @@ func TestLiveReenterPickerStopsStreams(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("ctx 应已取消")
 	}
+}
+
+// liveFrame 构造确定性的实时模式整帧：面板按名字排序（golden 稳定），
+// fakeStream 注入固定行后立即收束（无真实 docker 依赖）。
+func liveFrame(t *testing.T, panels map[string][]string) string {
+	t.Helper()
+	var targets []logs.Target
+	for name := range panels {
+		targets = append(targets, logs.Target{Kind: "docker", Name: name})
+	}
+	// 固定顺序，golden 稳定
+	sort.Slice(targets, func(i, j int) bool { return targets[i].Name < targets[j].Name })
+	m := newLiveModel(t, targets, fakeStream(panels))
+	m.drain(m.Init())
+	// 状态栏会显示落盘目录：t.TempDir() 是机器相关的随机路径，golden 基线
+	// 必须确定性（goldenFrame 的无随机路径约束），帧渲染前换成固定展示值。
+	// MkdirAll 在 startLive 时已用真实临时目录执行过，此处只影响显示。
+	m.cfg.LiveDir = "/var/tmp/scx-rg-live"
+	return m.frame()
+}
+
+func TestLiveRenderOnePanel(t *testing.T) {
+	f := liveFrame(t, map[string][]string{"web": {"line-1", "line-2"}})
+	for _, want := range []string{"web", "line-1", "line-2"} {
+		if !strings.Contains(f, want) {
+			t.Fatalf("单面板帧应含 %q:\n%s", want, f)
+		}
+	}
+}
+
+func TestLiveRenderTwoPanels(t *testing.T) {
+	f := liveFrame(t, map[string][]string{"api": {"api-log"}, "web": {"web-log"}})
+	if !strings.Contains(f, "api") || !strings.Contains(f, "web") ||
+		!strings.Contains(f, "api-log") || !strings.Contains(f, "web-log") {
+		t.Fatalf("双面板帧应同时含两容器与日志:\n%s", f)
+	}
+}
+
+func TestLiveGolden(t *testing.T) {
+	goldenFrame(t, "live-1", liveFrame(t, map[string][]string{"web": {"2026-08-30T10:00:00Z hello", "2026-08-30T10:00:01Z world"}}))
+	goldenFrame(t, "live-2", liveFrame(t, map[string][]string{"api": {"api-line"}, "web": {"web-line"}}))
+	goldenFrame(t, "live-4", liveFrame(t, map[string][]string{
+		"a1": {"line-a"}, "b2": {"line-b"}, "c3": {"line-c"}, "d4": {"line-d"},
+	}))
 }

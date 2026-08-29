@@ -2,12 +2,15 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"image/color"
 	"os"
 	"path/filepath"
 	"time"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"scx-rg/internal/logs"
 )
@@ -215,35 +218,124 @@ func (m *Model) stopLive() {
 	m.liveFocus = 0
 }
 
-// resizeLivePanels 按 liveRows 布局重算各面板外框尺寸与内嵌视口
-// （进实时 / 窗口变化时调用；仅 Update goroutine 执行）。
-// 可用高度 = 终端高 − 头部搜索框 − 状态栏，按行数均分；面板内视口
-// 再扣边框与标题行。完整渲染见 liveView（后续任务）。
+// livePanelColor 面板循环取色（标题/状态点），动态读主题槽位——
+// ApplyTheme 换色后无需重建。
+// 返回类型是 image/color 的 Color 接口（包级色槽的声明类型）：
+// lipgloss v2 的 lipgloss.Color 是构造函数而非类型，无法作签名。
+func livePanelColor(i int) color.Color {
+	switch i % 4 {
+	case 0:
+		return colorCyan
+	case 1:
+		return colorAccent
+	case 2:
+		return colorOK
+	default:
+		return colorErr
+	}
+}
+
+// resizeLivePanels 按终端与面板数计算每面板 viewport（标题 1 行 + 边框 2 行，
+// 高度再留 1 行给 Height 补齐的余地）。
+// 仅 Update goroutine 执行（进实时 / 窗口变化时调用）。注意 lipgloss v2 的
+// Width/Height 是「含边框的整体块尺寸」，故面板外框直接取 colW×rowH，
+// 视口内容区再向内扣 2 列边框；末行/末列吸收整除余数，拼行时零缝隙。
 func (m *Model) resizeLivePanels() {
 	rows := liveRows(len(m.livePanels))
-	if rows == nil {
+	if len(rows) == 0 {
 		return
 	}
-	areaH := max(0, m.height-2)
-	rowH := max(1, areaH/len(rows))
-	i := 0
-	for _, cnt := range rows {
-		panelW := max(1, m.frameW()/cnt)
-		for j := 0; j < cnt && i < len(m.livePanels); j++ {
-			p := m.livePanels[i]
-			p.w, p.h = panelW, rowH
-			vpW := max(0, panelW-2) // 左右边框
-			vpH := max(0, rowH-3)   // 上下边框 + 标题行
-			if p.vp.Width() == 0 && p.vp.Height() == 0 {
-				p.vp = viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(vpH))
-			} else {
-				p.vp.SetWidth(vpW)
-				p.vp.SetHeight(vpH)
+	H := max(0, m.height-4) // 头部 3 行 + 状态栏 1 行，与 panelH 对齐
+	W := m.frameW()
+	idx := 0
+	for r, cols := range rows {
+		rowH := H / len(rows)
+		if r == len(rows)-1 {
+			rowH = H - rowH*(len(rows)-1) // 末行吸收余数
+		}
+		for c := 0; c < cols; c++ {
+			colW := W / cols
+			if c == cols-1 {
+				colW = W - colW*(cols-1)
 			}
+			p := m.livePanels[idx]
+			p.w, p.h = colW, rowH
+			p.vp = viewport.New(viewport.WithWidth(max(0, colW-2)), viewport.WithHeight(max(0, rowH-4)))
 			p.rebuild()
-			i++
+			idx++
 		}
 	}
+}
+
+// liveView 分屏渲染：行内 JoinHorizontal、行间 JoinVertical。
+func (m *Model) liveView() string {
+	if len(m.livePanels) == 0 {
+		return ""
+	}
+	rows := liveRows(len(m.livePanels))
+	var rowStrs []string
+	idx := 0
+	for _, cols := range rows {
+		cells := make([]string, 0, cols)
+		for c := 0; c < cols; c++ {
+			cells = append(cells, m.livePanelView(idx))
+			idx++
+		}
+		rowStrs = append(rowStrs, lipgloss.JoinHorizontal(lipgloss.Top, cells...))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, rowStrs...)
+}
+
+// livePanelView 单面板：标题（状态点 ●/■ + 容器名 + 焦点指示）+ 日志区。
+// 焦点面板用激活边框，其余空闲边框。
+// 状态点 ●（流存活）/ ■（已收束）属于 East Asian Ambiguous 宽度字符，
+// 歧义宽按 2 格的终端里标题行会比 lipgloss 计宽多占 1-2 格（与列表
+// 标记 ✓/⚠ 同类既有取舍，见 frame_width_test 注释）。
+func (m *Model) livePanelView(i int) string {
+	p := m.livePanels[i]
+	dot := "●"
+	// 先取带面板色副本再 Render（lipgloss.Style 是值类型，复制安全）；
+	// stylePanelTitle 包级样式不受 Foreground 副本影响。
+	titleStyle := stylePanelTitle.Foreground(livePanelColor(i))
+	if p.exited {
+		dot = "■"
+	}
+	title := titleStyle.Render(dot + " " + p.target.Name)
+	if i == m.liveFocus {
+		title += styleDim.Render(" ◀")
+	}
+	border := styleBorderIdle
+	if i == m.liveFocus {
+		border = styleBorderActive
+	}
+	body := p.vp.View()
+	if len(p.buf) == 0 && !p.exited {
+		body = stylePlaceholder.Render("等待日志...")
+	}
+	return border.Width(p.w).Height(p.h).Render(title + "\n" + body)
+}
+
+// liveStatus 实时模式状态栏：焦点容器、退出计数、落盘目录与键位提示。
+func (m *Model) liveStatus() string {
+	left := styleBadgeContent.Render("实时 " + pickerKindLabel(m.pickerKind))
+	if m.liveFocus < len(m.livePanels) {
+		left += " " + m.livePanels[m.liveFocus].target.Name
+	}
+	exited := 0
+	for _, p := range m.livePanels {
+		if p.exited {
+			exited++
+		}
+	}
+	if exited > 0 {
+		left += styleDim.Render(fmt.Sprintf(" %d 已退出", exited))
+	}
+	left += styleDim.Render(" · 落盘 " + m.cfg.LiveDir)
+	if m.notice != "" {
+		left += " / " + styleMatch.Render(m.notice)
+	}
+	right := "j/k 滚动 / Tab·1-4 焦点 / G 回底 / y 复制搜索命令 / Ctrl+R 重选 / Esc 退出"
+	return m.statusLine(left, right)
 }
 
 // handleLiveKey 实时视图键位（Task 2 最小集：退出与重选；完整滚动/焦点在后续任务）。
