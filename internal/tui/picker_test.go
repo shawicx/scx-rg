@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -124,43 +126,110 @@ func TestPickerLoadFilterAndPick(t *testing.T) {
 	}
 }
 
-func TestPickerFollowPick(t *testing.T) {
-	if !search.RgAvailable() {
-		t.Skip("rg 未安装")
-	}
+func TestPickerMarkAndEnterLive(t *testing.T) {
+	// StreamLog 回调在各面板自己的 goroutine 里并发执行：收集切片必须加锁
+	// （否则 -race 报竞态）；api 先等 web 登记再注册，保证「按标记顺序启动」
+	// 的断言不受 goroutine 调度顺序抖动影响。
+	var mu sync.Mutex
+	var streamed []logs.Target
+	webRegistered := make(chan struct{})
 	cfg := Config{
-		PickerKind:  "docker",
-		SnapshotDir: t.TempDir(),
-		Mode:        ModeContent,
-		ImgProto:    preview.ProtocolNone,
-		RgAvailable: true,
-		FollowPick:  true,
+		PickerKind: "docker", LivePick: true, LiveDir: t.TempDir(),
+		Mode: ModeContent, RgAvailable: true,
 		ListSources: func(ctx context.Context, kind string) ([]logs.Source, error) {
-			return pickerTestSources[:1], nil
+			return pickerTestSources, nil
 		},
-		FollowLog: func(ctx context.Context, tgt logs.Target, path string) error {
-			return os.WriteFile(path, []byte("ERROR one\nplain\n"), 0o644)
+		StreamLog: func(ctx context.Context, tgt logs.Target, tail int, path string, onLine func(string)) error {
+			if tgt.Name == "api" {
+				<-webRegistered
+			}
+			mu.Lock()
+			streamed = append(streamed, tgt)
+			mu.Unlock()
+			if tgt.Name == "web" {
+				close(webRegistered)
+			}
+			onLine(tgt.Name + "-log")
+			return nil
 		},
 	}
 	m := newPickerModel(t, cfg)
 	m.drain(m.Init())
+	// Tab 标记第 1 项（web），下移，Tab 标记第 2 项（api）
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.drain(cmd)
-
 	if m.picking {
-		t.Fatal("应切入检索阶段")
+		t.Fatal("Enter 应离开选择器")
 	}
-	if !m.following() {
-		t.Fatal("选中后应进入跟随模式")
+	if !m.liveMode || len(m.livePanels) != 2 {
+		t.Fatalf("Enter 应进实时双面板: live=%v panels=%d", m.liveMode, len(m.livePanels))
 	}
-	// 空查询即应看到跟随进程落盘的全部初始内容
-	if len(m.results) != 2 { // "ERROR one" + "plain"
-		t.Fatalf("空查询应显示全部 2 行初始日志, 得到 %d", len(m.results))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(streamed) != 2 || streamed[0].Name != "web" || streamed[1].Name != "api" {
+		t.Fatalf("应按标记顺序启动两容器流: %+v", streamed)
 	}
-	m.input.SetValue("ERROR")
-	triggerSearch(m)
-	if len(m.results) != 1 {
-		t.Fatalf("跟随初始内容应可检索, 得到 %d", len(m.results))
+}
+
+func TestPickerMarkCapFour(t *testing.T) {
+	cfg := Config{
+		PickerKind: "docker", LivePick: true, LiveDir: t.TempDir(),
+		Mode: ModeContent,
+		ListSources: func(ctx context.Context, kind string) ([]logs.Source, error) {
+			srcs := make([]logs.Source, 5)
+			for i := range srcs {
+				srcs[i] = logs.Source{Target: logs.Target{Kind: "docker", Name: "c" + strconv.Itoa(i)}}
+			}
+			return srcs, nil
+		},
+		StreamLog: fakeStream(nil),
+	}
+	m := newPickerModel(t, cfg)
+	m.drain(m.Init())
+	for i := 0; i < 4; i++ {
+		_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // 第 5 个
+	if len(m.pickerMarks) != 4 || m.notice != "实时模式最多 4 个容器" {
+		t.Fatalf("第 5 个标记应被拦: marks=%d notice=%q", len(m.pickerMarks), m.notice)
+	}
+}
+
+func TestPickerSnapshotEnterUnchanged(t *testing.T) {
+	// LivePick=false（--snapshot）：Enter 走既有快照检索路径，Tab 无效
+	cfg := Config{
+		PickerKind: "docker", SnapshotDir: t.TempDir(), Mode: ModeContent,
+		RgAvailable: true,
+		ListSources: func(ctx context.Context, kind string) ([]logs.Source, error) {
+			return pickerTestSources[:1], nil
+		},
+		FetchLog: func(ctx context.Context, tgt logs.Target) (string, error) {
+			f, err := os.CreateTemp("", "snap-*.log")
+			if err != nil {
+				return "", err
+			}
+			_, _ = f.WriteString("snap-line\n")
+			_ = f.Close()
+			return f.Name(), nil
+		},
+	}
+	m := newPickerModel(t, cfg)
+	m.drain(m.Init())
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // 快照模式：不应产生标记
+	if len(m.pickerMarks) != 0 {
+		t.Fatal("快照模式 Tab 应禁用")
+	}
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m.drain(cmd)
+	if m.liveMode {
+		t.Fatal("快照模式不应进实时")
+	}
+	if m.picking || m.root != m.cfg.SnapshotDir {
+		t.Fatal("应走既有快照检索路径")
 	}
 }
 

@@ -257,7 +257,13 @@ func (m *Model) statusView() string {
 		if m.searchErr != nil {
 			left += " / " + styleErrText.Render(m.searchErr.Error())
 		}
+		if m.notice != "" {
+			left += " / " + styleMatch.Render(m.notice)
+		}
 		right := "上下选择 / 输入过滤 / Ctrl+R 刷新 / Enter 抓取并检索 / Esc 退出"
+		if m.cfg.LivePick {
+			right = "上下选择 / Tab 多选(≤4) / Ctrl+R 刷新 / Enter 实时 / Esc 退出"
+		}
 		return m.statusLine(left, right)
 	}
 	var badge string

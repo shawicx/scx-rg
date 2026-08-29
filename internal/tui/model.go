@@ -89,13 +89,11 @@ type Config struct {
 
 	// 源选择器（scx-rg docker / scx-rg k8s 无参数进入）
 	PickerKind  string // "docker" | "kubectl"
-	SnapshotDir string // 快照落盘目录（由 main 创建与清理）
-	FollowPick  bool   // 选中目标后跟随而非一次性快照
+	SnapshotDir string // 快照落盘目录（--snapshot 路径，由 main 创建与清理）
 	LogTail     int    // 抓取行数上限（0 = 默认 100000）
 	// 以下可注入 fake 以便测试；为 nil 时调用 logs 包真实实现。
 	ListSources func(ctx context.Context, kind string) ([]logs.Source, error)
 	FetchLog    func(ctx context.Context, t logs.Target) (string, error)
-	FollowLog   func(ctx context.Context, t logs.Target, path string) error
 
 	// 实时多面板（docker/k8s 默认）：LivePick 选择器 Enter 进实时；
 	// LiveTargets 非空跳过选择器直达；LiveDir tee 落盘根目录；
@@ -252,16 +250,14 @@ type Model struct {
 	gitLoading bool
 
 	// 源选择器状态
-	picking      bool          // 处于「选目标」阶段
-	pickerKind   string        // docker | kubectl
-	pickerSrcs   []logs.Source // 全量列表
-	pickerView   []logs.Source // 过滤后的可见列表
-	pickerName   string        // Enter 选中的目标名
-	pickLoading  bool          // 抓取中
-	listLoading  bool          // 列表加载中
-	snapshotDir  string
-	followPick   bool
-	cancelFollow context.CancelFunc // 跟随进程的取消句柄
+	picking     bool          // 处于「选目标」阶段
+	pickerKind  string        // docker | kubectl
+	pickerSrcs  []logs.Source // 全量列表
+	pickerView  []logs.Source // 过滤后的可见列表
+	pickerName  string        // Enter 选中的目标名
+	pickLoading bool          // 抓取中
+	listLoading bool          // 列表加载中
+	snapshotDir string
 
 	// 实时多面板状态（buf/vp 等仅 Update goroutine 读写）
 	liveMode    bool
@@ -316,7 +312,6 @@ func New(cfg Config) *Model {
 		m.picking = true
 		m.pickerKind = cfg.PickerKind
 		m.snapshotDir = cfg.SnapshotDir
-		m.followPick = cfg.FollowPick
 		m.listLoading = true
 		m.mode = ModeContent
 		m.pickerMarks = map[string]bool{}

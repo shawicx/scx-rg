@@ -141,6 +141,10 @@ func (m *Model) allLiveDone() bool {
 // 保证「新行消息先于退出消息」的顺序——退出消息若抢在残余行前入队，
 // allLiveDone 会提前收束读链，尾部日志行滞留管道丢失）。
 func (m *Model) startLive(targets []logs.Target) tea.Cmd {
+	// 防御性停流：picker Enter 与 LiveTargets 直达是不经过 reenterPicker
+	// 的多入口调用方，若上一会话的 liveCancel 尚未清掉，直接覆盖会孤立
+	// 旧 ctx（无人再取消，goroutine 泄漏）。stopLive 幂等，先停再启。
+	m.stopLive()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.liveCancel = cancel
 	m.liveMode = true

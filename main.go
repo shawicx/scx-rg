@@ -251,13 +251,14 @@ func runLogSource(kind string, args []string) {
 	}
 	defer os.RemoveAll(dir)
 
-	// 无参数：进入源选择器（免记忆），选中后按上述默认跟随/快照。
+	// 无参数：进入源选择器（免记忆），选中后按上述默认实时/快照分流。
 	rest := fs.Args()
 	if len(rest) == 0 {
 		m := tui.New(tui.Config{
 			PickerKind:  target.Kind,
 			SnapshotDir: dir,
-			FollowPick:  follow,
+			LivePick:    follow, // 实时分流（Enter 进实时多面板，Tab 多选）
+			LiveDir:     dir,    // 实时 tee 落盘根目录（与会话临时目录同生命周期）
 			LogTail:     logTail,
 			Mode:        tui.ModeContent,
 			ImgProto:    preview.ProtocolNone,
