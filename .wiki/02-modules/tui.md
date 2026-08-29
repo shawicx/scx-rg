@@ -13,8 +13,9 @@
 | styles.go | 全部 lipgloss 样式；`initStyles()` 唯一定义点 + `ApplyTheme` 主题注入 |
 | action.go | 编辑器集成（Ctrl+E，`{file}/{line}` 模板 + nvim/vim/code/emacs/zed 预置、`$NVIM` quickfix） |
 | copy.go | OSC 52 剪贴板（写 /dev/tty）、Ctrl+O 外部翻页器 |
-| follow.go | 日志跟随模式：800ms 轮询文件增长、`resultKey`（path:line）保位 |
-| picker.go | docker/k8s 源选择器（两阶段的第一阶段）+ `reenterPicker`（检索阶段 Ctrl+R 返回重选） |
+| follow.go | `--follow` 文件跟随（搜索视图内）：800ms 轮询文件增长、`resultKey`（path:line）保位 |
+| picker.go | docker/k8s 源选择器（Tab 多选 ≤4，Enter 进实时；`--snapshot` 单目标快照）+ `reenterPicker`（实时阶段 Ctrl+R 返回重选） |
+| live.go | 实时多面板视图（docker/k8s 默认）：每面板一个 `logs.Stream` 流进程 + 100ms 批量管线 + tee 落盘；焦点面板滚动/跟随暂停恢复、y 复制搜索命令 |
 | rangefilter.go | Ctrl+T 可视化筛选栏（时间/条数/Git 三段，客户端过滤不重抓；实时默认条数 50） |
 | palette.go | 命令面板（`:` 输入为空时打开，模糊过滤全部命令） |
 | history.go | 搜索历史：只记录实际使用过的查询，落盘 XDG state，Ctrl+G 浮层 |
@@ -35,14 +36,17 @@
 | 模式 | `mode`(files/content)、`finder`、`picking`、`rangeBar`、`helpOverlay`、`gitLog` | 互斥的交互态，路由优先级见下 |
 | 浮层 | `paletteOpen/paletteQuery/paletteSel`、`historyOpen/historySel`、`pipeOpen/pipeInput`、`dirOpen/dirInput`、`replaceOpen/replaceStage`、`astMode/astMatches` | 各独立浮层的开合与输入态（输入独立于主搜索框） |
 | 多选 | `marked map[string]bool` | key = `resultKey(r)`（path:line），防筛选刷新错位 |
-| 跟随/筛选 | `followSize/followKeep`、`filterDur/filterCap`、`capChosen`、`raw`（未过滤缓冲）、`tsOK`、`windowed`、`liveTicking` | 日志场景专用；`capChosen`=用户手动选过条数档（实时默认不再覆盖） |
+| 跟随/筛选 | `followSize/followKeep`、`filterDur/filterCap`、`capChosen`、`raw`（未过滤缓冲）、`tsOK`、`windowed`、`liveTicking` | 搜索视图的日志场景专用；`capChosen`=用户手动选过条数档（实时默认不再覆盖） |
+| 实时多面板 | `liveMode/liveFocus/livePanels`、`liveCh/liveCancel/liveSeq`、`pickerMarks` | `livePanels` 每面板 `buf/vp/follow/exited`（仅 Update goroutine 读写）；`liveSeq` 防重进实时后旧管线消息串扰 |
 | Git | `gitFilter/gitAllow/gitKnown/gitOK/gitLoading`、`blameOn/blameText/blameCache`、`extraRoots` | 筛选栏第三段 / blame 摘要 / 多目录 |
-| 注入点 | `renderFile`、`writeClipboard`、`now`、`cfg.ListSources/FetchLog/FollowLog/GitFiles/BlameFetch/PipeRun/GitShow/NvimSend/AstScan/AstApply/GitClean` | 测试替换 fake 的钩子 |
+| 注入点 | `renderFile`、`writeClipboard`、`now`、`cfg.ListSources/FetchLog/StreamLog/GitFiles/BlameFetch/PipeRun/GitShow/NvimSend/AstScan/AstApply/GitClean` | 测试替换 fake 的钩子（`StreamLog` nil 时用 `logs.Stream`；`LiveDir/LiveTargets/LivePick` 驱动实时入口） |
 
 ## 按键路由优先级（handleKey，update.go）
 
 ```text
-1. m.picking      → handlePickerKey（源选择器独占）
+0. m.liveMode     → handleLiveKey（实时多面板独占：焦点滚动/切换、y 复制、
+                    Ctrl+R 重选、? 帮助接管）
+1. m.picking      → handlePickerKey（源选择器独占：Tab 多选、Enter 进实时/快照）
 2. m.rangeBar     → handleRangeBarKey（筛选栏聚焦）
 3. paletteOpen / historyOpen / pipeOpen / dirOpen / replaceOpen / astMode
                   → 各浮层按键处理（互斥，按此顺序短路）
@@ -69,7 +73,8 @@ Enter 输出：`pickedOutput()`——有标记按列表顺序输出全部标记�
 | `resultsMsg` | 同步 provider | `commitSearchResults` → 覆盖 results + refilter + 零命中回退判定 |
 | `resultMsg` / `streamDoneMsg` | waitForResult 链 | 首条到达先 `commitSearchResults`；流式逐条追加 / 收尾（windowed 重算） |
 | `previewMsg{path, rendered}` | 渲染 goroutine | `path != prevPath` 丢弃（用户已切走） |
-| `pickerLoadedMsg` / `snapshotReadyMsg` / `followTickMsg` / `liveTickMsg` | picker/跟随/实时滑窗 | 各自状态推进 |
+| `pickerLoadedMsg` / `snapshotReadyMsg` / `followTickMsg` / `liveTickMsg` | picker/快照/--follow 轮询/实时滑窗 | 各自状态推进 |
+| `liveLinesMsg{seq,panel,lines}` / `liveDoneMsg{seq,panel,err}` | live.go 批量管线（100ms 窗口聚合）/ Stream 进程收束 | seq 不匹配丢弃；追加缓冲+贴底 rebuild / 面板标 ■ 或显错 |
 | `gitFilesMsg` | loadGitFiles | gitOK 翻转 → 筛选栏第三段可见性 + 面板重排 |
 | `blameMsg` / `commitDetailMsg` | blame/gitlog 异步拉取 | 状态栏摘要 / 预览详情（过期丢弃） |
 | `astScanMsg` / `astAppliedMsg` / `pipeDoneMsg` / `editorDoneMsg` / `pagerDoneMsg` / `nvimDoneMsg` | ast-grep/管道/编辑器/翻页器 | 结果写回 / 错误提示 |

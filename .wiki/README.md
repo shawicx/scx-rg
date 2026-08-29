@@ -12,7 +12,7 @@
 | 主界面状态机与消息链 | [02-modules/tui](02-modules/tui.md) |
 | 搜索/模糊匹配怎么工作 | [02-modules/search](02-modules/search.md) |
 | 代码高亮与图片渲染 | [02-modules/preview](02-modules/preview.md) |
-| docker/k8s 日志检索 | [02-modules/logs](02-modules/logs.md) |
+| docker/k8s 实时日志与日志搜索分离 | [02-modules/logs](02-modules/logs.md) |
 | config.toml 支持什么 | [02-modules/config](02-modules/config.md) |
 | 全部键位、多选、shell 集成 | [03-guides/interaction](03-guides/interaction.md) |
 | 测试怎么跑、golden frame 是什么 | [03-guides/testing](03-guides/testing.md) |

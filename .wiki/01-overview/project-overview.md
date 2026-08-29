@@ -6,7 +6,7 @@ scx-rg 是一个**基于 ripgrep 的终端搜索浏览器**，同时通过 `--pr
 
 两条产品线（docs/PLAN.md 的定位决策，先 a 后 b，均已落地）：
 
-- **a. 搜索浏览器**：rg 结果的实时浏览 / 预览 / 定位（文件模式 + 内容模式 + 日志跟随）
+- **a. 搜索浏览器**：rg 结果的实时浏览 / 预览 / 定位（文件模式 + 内容模式 + `--follow` 日志文件跟随）
 - **b. 通用 finder**：`--provider stdin | docker-ps` 读外部候选做模糊筛选（M4）
 
 ## 核心能力
@@ -21,7 +21,7 @@ scx-rg 是一个**基于 ripgrep 的终端搜索浏览器**，同时通过 `--pr
 | 图片预览三档：kitty / sixel / halfblock（▀ 半块 + truecolor 降级） | 选中图片文件 |
 | 多选输出（Ctrl+Space 标记，Enter 输出多行） | 列表 |
 | 帮助浮层（? / F1，按模式裁剪键位表） | 全局 |
-| docker / k8s / 单文件日志检索（默认跟随 tail -f 式 + 时间/条数筛选） | `scx-rg docker [名字]` 等子命令 |
+| docker / k8s 实时多面板（≤4 分屏、焦点面板制、tee 落盘稳定路径）+ 落盘文件检索（`--follow` 边跟边搜、时间/条数筛选） | `scx-rg docker [名字]` 等子命令；搜索回归默认命令 |
 | 通用 finder（stdin 管道 / docker-ps 预设） | `--provider` |
 | 配置文件（防抖 / 忽略目录 / 主题三色） | `~/.config/scx-rg/config.toml` |
 | OSC 52 剪贴板复制 / Ctrl+O 外部翻页器 | `Ctrl+Y` / `Ctrl+O` |
@@ -57,6 +57,7 @@ scx-rg 是一个**基于 ripgrep 的终端搜索浏览器**，同时通过 `--pr
 | M3 | 图片预览完善：halfblock、DA1 探测、kitty 清理链、GIF 首帧 | ✅（真机 checklist 见 README） |
 | M4 | 交互与扩展：帮助、多选、finder、config.toml、shell 集成 | ✅ |
 | M5 | 工程质量：golden frame、rg 解析单测、CI 补强 | ✅ |
+| 实时日志分离 | docker/k8s 子命令改实时多面板（≤4 分屏 + tee 落盘），日志搜索回归默认命令，`--snapshot` 保留旧流程 | ✅ 2026-08-30 |
 
 详见 [docs/PLAN.md](../../docs/PLAN.md)。
 

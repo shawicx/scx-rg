@@ -17,7 +17,7 @@
 | `Ctrl+Y` / `Alt+Y` | 复制当前预览（OSC 52） | 日志/finder 模式复制行文本 |
 | `Ctrl+O` / `Alt+O` | 外部翻页器打开（自由复制） | 图片预览不可用 |
 | `Ctrl+T` / `Alt+T` | 结果筛选栏（时间窗/条数/Git） | 见下方筛选栏 |
-| `Ctrl+R` / `Alt+R` | docker/k8s 会话：**返回选择器重选容器/Pod**（`reenterPicker`） | 选择器内同键=刷新列表 |
+| `Ctrl+R` / `Alt+R` | `--snapshot` 检索会话：**返回选择器重选容器/Pod**（`reenterPicker`）；实时视图同键同义（见下表） | 选择器内同键=刷新列表 |
 | `Ctrl+G` / `Alt+G` | 搜索历史浮层（Enter 回填执行 · Del 删除） | history.go，落盘 XDG_STATE_HOME |
 | `Ctrl+B` / `Alt+B` | 状态栏 blame 摘要开关 | blame.go，git 仓库内 |
 | `Ctrl+E` / `Alt+E` | 编辑器打开选中文件到对应行 | 需 config `[editor]`；有 `$NVIM` 发 quickfix |
@@ -29,7 +29,27 @@
 
 所有 Ctrl 功能键都有 `Alt+字母` 别名（堡垒机/浏览器 Web 终端常截获 Ctrl 组合键）。
 
-picker 模式补充：输入过滤、`Ctrl+R` 刷新源列表、Enter 抓取；检索阶段 `Ctrl+R` 返回选择器。筛选栏内：`↑↓/Tab` 切段、`←→` 移动并即时生效。
+picker 模式补充：输入过滤、`Ctrl+R` 刷新源列表、`Tab` 多选标记（实时模式 ≤4）、Enter 按标记集/光标项进实时（`--snapshot` 则单目标快照检索）；实时阶段 `Ctrl+R` 返回选择器。筛选栏内：`↑↓/Tab` 切段、`←→` 移动并即时生效。
+
+## 实时多面板键位（docker/k8s 默认视图）
+
+焦点面板制：非焦点面板永远贴底，焦点面板上翻即暂停该面板跟随、回底恢复。
+
+| 键 | 行为 |
+| --- | --- |
+| `j` `k` `↑` `↓` / `Ctrl+N` `Ctrl+P` | 滚动焦点面板（上翻暂停该面板跟随） |
+| `Ctrl+D` / `Ctrl+U` | 半页滚动 |
+| `PgUp` / `PgDown` | 整页滚动（步长=焦点面板视口高） |
+| `G` / `End` | 回底并恢复跟随（滚到底部同样自动恢复） |
+| `g` / `Home` | 到顶（必然暂停跟随） |
+| `Tab` / `Shift+Tab` | 循环切换焦点面板 |
+| `1`-`4` | 直达焦点面板（越界忽略，不回绕） |
+| `y` | 复制焦点面板的 `scx-rg --follow <落盘路径>`（OSC 52，writeClipboard 可注入） |
+| `?` / `F1` | 帮助浮层（实时视图无文本输入，`?` 恒为帮助键；浮层打开时任意键关闭） |
+| `Ctrl+R` / `Alt+R` | 返回选择器（`reenterPicker`：停全部 Stream 进程与批量管线） |
+| `Ctrl+C` / `Esc` | 退出（`stopLive` 清场） |
+
+分屏布局随面板数变化：1 全屏 / 2 上下 / 3 上 1 下 2 / 4 田字；面板标题 `●` 流存活、`■` 已收束（容器停止后缓冲保留可翻阅）。
 
 ## 多选语义
 
@@ -72,11 +92,13 @@ Git    全部  仅改动  仅暂存   （git 仓库内第三段）
 ## docker / k8s / 日志子命令
 
 ```bash
-scx-rg docker [名字] [--snapshot]   # 默认实时跟随（tail 10万行 + 持续追加）
+scx-rg docker [名字] [--snapshot]   # 默认实时多面板（选择器 Tab 多选 ≤4 或名字直达）
 scx-rg k8s [Pod] [-n ns] [-c 容器]
-scx-rg --follow /var/log/app.log    # 本地文件跟随
+scx-rg <落盘文件>                    # 默认命令检索实时会话留下的日志
+scx-rg --follow <落盘文件>           # 边跟边搜（800ms 轮询增长重跑查询）
+scx-rg --follow /var/log/app.log    # 本地文件跟随（不受影响）
 ```
 
-无名字进入源选择器（左列表右详情）；日志模式 Enter 输出选中行文本；检索阶段 `Ctrl+R` 随时返回选择器重选目标（`reenterPicker`：停搜索与跟随进程、清检索态、重载源列表）。
+实时与搜索彻底分离：子命令只做实时（边渲染边 tee 落盘 `<UserCacheDir>/scx-rg/logs/<kind>/[<ns>/]<名>.log`，macOS `~/Library/Caches/scx-rg/logs/…`、Linux `~/.cache/scx-rg/logs/…`），落盘文件路径稳定、会话退出后保留——默认 scx-rg 命令随时可搜，`y` 键一键复制搜索命令。`--snapshot` 保留旧快照检索流程（临时目录、退出清理、选择器多选禁用）；子命令 `--follow`/`-f` 旗标兼容保留但无行为差异。检索态（`--snapshot` 或 `--follow`）Enter 输出选中日志行文本；`Ctrl+R` 随时返回选择器重选目标（`reenterPicker`：停搜索/实时进程、清检索态、重载源列表）。
 
 Related: [tui（实现）](../02-modules/tui.md) · [search（finder 后端）](../02-modules/search.md) · [README（用户视角）](../../README.md)

@@ -15,21 +15,21 @@ go test ./internal/tui -update         # 刷新 golden frame 基线（人工审�
 | `internal/preview` | 高亮行数对齐（highlightLines 长度=Split）、CJK/emoji 折行宽度、超长单行段数封顶、二进制嗅探、大文件窗口化 + JumpOffset、图片三档渲染序列、协议探测链、halfblock 各色彩档位、GIF 首帧还原、缓存 |
 | `internal/tui` | 见下（harness + golden） |
 | `internal/config` | 字段解析、缺文件/坏文件回退默认、零值保持默认 |
-| `internal/logs` | docker/kubectl 输出解析（Runner 注入 fake） |
+| `internal/logs` | docker/kubectl 输出解析（Runner 注入 fake）、`Stream` 流式读取与 tee 落盘（内存 pipe 喂行、ctx 取消契约）、`LivePath` 路径拼装 |
 
 ## tui 测试 harness：drain
 
 `tui.Model.drain(cmd)`（生产代码）同步驱动 cmd/msg 链：执行 cmd 得 msg → `m.Update(msg)` → 收集 next cmd 循环；展开 `tea.BatchMsg`、丢弃 `cursor.BlinkMsg`（自续链否则死循环）、上限 2^20。配合注入点：
 
 - `m.renderFile`——换 fake 渲染函数（计数/注入 kitty 序列）
-- `m.writeClipboard`、`m.now`（假时钟）、`Config.ListSources/FetchLog/FollowLog`
+- `m.writeClipboard`、`m.now`（假时钟）、`Config.ListSources/FetchLog/StreamLog`（实时流注入内存 pipe）
 - `newContentModel`（update_test.go）——rg 依赖场景的模型构造器，**rg 未装自动 skip**
 
 rg 依赖测试在 CI（无 rg）会 skip 是预期行为；rg 解析逻辑由 `rg_parse_test.go` 纯单测兜底，CI 恒跑。
 
 ## golden frame 快照（M5）
 
-`internal/tui/golden_test.go`：五个确定性场景——files 过滤、finder 详情、帮助浮层、多选标记、图片占位——整帧经 `RenderOnce`/`View` 渲染，**去 ANSI**（正则剥 CSI/OSC/kitty APC）后与 `internal/tui/testdata/golden/*.txt` 逐字节对比。
+`internal/tui/golden_test.go` + `live_test.go`：十三个确定性场景——files 过滤、finder 详情、帮助浮层、多选标记、图片占位、Git 筛选栏、命令面板、搜索历史、blame 状态栏、AST 替换浮层、实时分屏 1/2/4 面板（live-1/live-2/live-4，`StreamLog` 注入 fake 流）——整帧经 `RenderOnce`/`View` 渲染，**去 ANSI**（正则剥 CSI/OSC/kitty APC）后与 `internal/tui/testdata/golden/*.txt` 逐字节对比。
 
 确定性设计：场景全部 rg-free（`RgAvailable:false` 走 walkFiles 排序）、非空 query 有排序契约、相对路径显示、无时间戳——本机与 CI 输出一致。
 

@@ -25,9 +25,23 @@ scx-rg docker [容器名] [--snapshot]
 scx-rg k8s [Pod名] [-n namespace] [-c 容器名] [--snapshot]
 ```
 
-- 不带名字:进入交互选择器(模糊过滤,免记名字)
-- 默认实时跟随(抓最近 100000 行 + 持续追加);`--snapshot` 只抓一次
+- 不带名字:进入交互选择器(模糊过滤,`Tab` 多选最多 4 个,`Enter` 进实时分屏)
+- 带名字:跳过选择器直达实时全屏单面板
+- 默认实时多面板(每容器一个 `logs -f --timestamps --tail 100000` 流,tee 落盘缓存目录);`--snapshot` 走旧的一次快照+检索流程
+- `--follow` / `-f` 兼容保留(实时已是默认行为,加了无差别)
 - 抓取行数上限固定 100000(`--tail` 直传底层命令)
+
+## 实时日志落盘路径
+
+实时会话边渲染边 tee 到 `os.UserCacheDir()/scx-rg/logs/` 下,路径稳定可预测,默认命令随时可搜:
+
+```text
+macOS   ~/Library/Caches/scx-rg/logs/docker/<容器名>.log
+        ~/Library/Caches/scx-rg/logs/kubectl/<namespace>/<Pod名>.log
+Linux   ~/.cache/scx-rg/logs/…
+```
+
+会话启动时重写该文件,退出后保留;状态栏显示落盘目录,实时视图按 `y` 可复制 `scx-rg --follow <落盘路径>`。
 
 ## 调试
 

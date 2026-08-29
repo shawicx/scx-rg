@@ -61,6 +61,6 @@ vim "$(scx-rg -mode content -q TODO)"   # 搜索并直接编辑
 
 ## 下一步
 
-- [日志检索](/guides/logs/):Docker / K8s / 本地日志实时跟随
+- [日志](/guides/logs/):Docker / K8s 实时多面板、落盘文件检索、本地日志跟随
 - [结果筛选](/guides/filtering/):Ctrl+T 按时间窗、条数可视化过滤
 - [键位参考](/guides/keybindings/):完整键位表与堡垒机逃生门
