@@ -16,12 +16,31 @@ type helpGroup struct {
 // 堡垒机/浏览器 Web 终端常在按键到达 SSH 会话前截获 Ctrl 组合键
 // （Ctrl+T 新标签页、Ctrl+F 页内查找等），Alt 组合键基本都会透传。
 func (m *Model) helpGroups() []helpGroup {
+	// 实时模式只展示实时分组：搜索/列表/预览等键位已被分屏视图取代，
+	// 展示出去只会误导（与 finder 裁剪同思路）。
+	if m.liveMode {
+		return []helpGroup{{
+			title: "实时日志",
+			rows: [][2]string{
+				{"j k ↑↓ PgUp PgDn", "滚动焦点面板（上翻暂停该面板跟随）"},
+				{"G/End · g/Home", "回底恢复跟随 · 到顶"},
+				{"Tab/Shift+Tab · 1-4", "切换 / 直达焦点面板"},
+				{"y", "复制焦点面板搜索命令（scx-rg --follow 落盘文件）"},
+				{"Ctrl+R / Alt+R", "返回选择器重选容器"},
+				{"? · F1", "本帮助"},
+				{"Ctrl+C / Esc", "退出"},
+			},
+		}}
+	}
 	searchRows := [][2]string{
 		{"输入", "实时搜索（防抖）"},
 		{"Esc", "清空输入 → 清空标记 → 退出"},
 	}
 	if m.pickerKind != "" {
 		searchRows = append(searchRows, [2]string{"Ctrl+R / Alt+R", "重新选择" + pickerTargetWord(m.pickerKind) + "（返回选择器）"})
+	}
+	if m.cfg.LivePick {
+		searchRows = append(searchRows, [2]string{"Tab", "标记容器（≤4，Enter 实时多面板）"})
 	}
 	groups := []helpGroup{{
 		title: "搜索",

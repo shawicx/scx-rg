@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"charm.land/bubbles/v2/viewport"
@@ -52,12 +53,19 @@ func (p *livePanel) appendLines(lines []string) {
 
 // rebuild 重建面板内容：跟随态贴底，暂停态保持当前偏移。
 func (p *livePanel) rebuild() {
-	y := p.vp.YOffset()
+	p.rebuildAt(p.vp.YOffset())
+}
+
+// rebuildAt 以 keep 为暂停态偏移重建。resize 换新视口时旧偏移随旧视口
+// 丢失，须在 viewport.New 前取出再传入（直接用 rebuild 会拿到新视口的 0，
+// 暂停跟随的上翻位置静默回顶）。SetContentLines 必须先于 SetYOffset：
+// 全新视口没有内容时 maxYOffset 恒 0，先设偏移会被 clamp 归零。
+func (p *livePanel) rebuildAt(keep int) {
 	p.vp.SetContentLines(p.buf)
 	if p.follow || len(p.buf) == 0 {
 		p.vp.SetYOffset(max(0, len(p.buf)-p.vp.Height()))
 	} else {
-		p.vp.SetYOffset(y)
+		p.vp.SetYOffset(keep)
 	}
 }
 
@@ -259,9 +267,12 @@ func (m *Model) resizeLivePanels() {
 				colW = W - colW*(cols-1)
 			}
 			p := m.livePanels[idx]
+			// 新视口 YOffset 从 0 开始：换建前保存旧偏移，暂停跟随态
+			// resize 后不回顶（跟随态 rebuildAt 内部自会贴底，不受影响）
+			y := p.vp.YOffset()
 			p.w, p.h = colW, rowH
 			p.vp = viewport.New(viewport.WithWidth(max(0, colW-2)), viewport.WithHeight(max(0, rowH-4)))
-			p.rebuild()
+			p.rebuildAt(y)
 			idx++
 		}
 	}
@@ -338,8 +349,19 @@ func (m *Model) liveStatus() string {
 	return m.statusLine(left, right)
 }
 
-// handleLiveKey 实时视图键位（Task 2 最小集：退出与重选；完整滚动/焦点在后续任务）。
+// handleLiveKey 实时视图键位：焦点面板制——非焦点面板永远贴底，
+// 焦点面板上翻即暂停该面板跟随，G/End 回底恢复。
+// 帮助浮层打开时接管按键：Ctrl+C 仍直接退出，其余任意键只关浮层
+// （实时视图无文本输入，? 不再有「空输入」门槛，恒为帮助键）。
 func (m *Model) handleLiveKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.helpOverlay {
+		if msg.String() == "ctrl+c" {
+			m.shutdown()
+			return m, tea.Quit
+		}
+		m.helpOverlay = false
+		return m, nil
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		m.shutdown()
@@ -347,8 +369,125 @@ func (m *Model) handleLiveKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.shutdown()
 		return m, tea.Quit
+	case "?", "f1":
+		m.helpOverlay = true
+		return m, nil
 	case "ctrl+r", "alt+r":
 		return m, m.reenterPicker()
+	case "tab":
+		if n := len(m.livePanels); n > 0 {
+			m.liveFocus = (m.liveFocus + 1) % n
+		}
+		return m, nil
+	case "shift+tab":
+		if n := len(m.livePanels); n > 0 {
+			m.liveFocus = (m.liveFocus - 1 + n) % n
+		}
+		return m, nil
+	case "1", "2", "3", "4":
+		// 数字直达只认 1-4（面板上限 liveMaxPanels）；越界忽略，
+		// 不回绕——多按一位数字不应跳到别的面板
+		if n, err := strconv.Atoi(msg.String()); err == nil && n <= len(m.livePanels) {
+			m.liveFocus = n - 1
+		}
+		return m, nil
+	case "y":
+		return m, m.copyLiveSearchCmd()
+	case "up", "k", "ctrl+p", "alt+p":
+		m.scrollLive(-1)
+		return m, nil
+	case "down", "j", "ctrl+n", "alt+n":
+		m.scrollLive(1)
+		return m, nil
+	case "pgup":
+		m.scrollLive(-m.focusPanelHeight())
+		return m, nil
+	case "pgdown":
+		m.scrollLive(m.focusPanelHeight())
+		return m, nil
+	case "ctrl+d":
+		m.scrollLive(max(1, m.focusPanelHeight()/2))
+		return m, nil
+	case "ctrl+u":
+		m.scrollLive(-max(1, m.focusPanelHeight()/2))
+		return m, nil
+	case "G", "end":
+		m.gotoLiveBottom()
+		return m, nil
+	case "g", "home":
+		// 到顶即暂停跟随（顶部必然离开底部）；偏移 0 无须先对齐内容
+		if p := m.focusPanel(); p != nil {
+			p.follow = false
+			p.vp.SetYOffset(0)
+		}
+		return m, nil
 	}
 	return m, nil
+}
+
+// focusPanel 当前焦点面板；面板为空（不该出现）返回 nil，调用方各自判空。
+func (m *Model) focusPanel() *livePanel {
+	if m.liveFocus < len(m.livePanels) {
+		return m.livePanels[m.liveFocus]
+	}
+	return nil
+}
+
+// focusPanelHeight 焦点面板视口高（翻页/半页滚动步长），下限 1 防零步死循环。
+func (m *Model) focusPanelHeight() int {
+	if p := m.focusPanel(); p != nil {
+		return max(1, p.vp.Height())
+	}
+	return 1
+}
+
+// scrollLive 滚动焦点面板并按是否贴底更新跟随标志：滚到底部自动恢复
+// 跟随（与 G 对称），离开底部即暂停。非焦点面板不由此函数触及，
+// 其 follow 恒真、新行 rebuild 自会贴底。
+// 暂停期间新行只入缓冲不重建视口（liveLinesMsg 仅 follow 时 rebuild），
+// 故先同步内容再算偏移——否则 maxY 按新缓冲计、SetYOffset 却被旧内容
+// clamp，滚动会停在过期底部。
+func (m *Model) scrollLive(delta int) {
+	p := m.focusPanel()
+	if p == nil || len(p.buf) == 0 {
+		return
+	}
+	p.vp.SetContentLines(p.buf)
+	maxY := max(0, len(p.buf)-p.vp.Height())
+	y := min(max(0, p.vp.YOffset()+delta), maxY)
+	p.vp.SetYOffset(y)
+	p.follow = y >= maxY
+}
+
+// gotoLiveBottom 焦点面板回底并恢复跟随。容器安静（暂停后再无新行）
+// 时没有 liveLinesMsg 触发 rebuild，回底必须就地完成，先对齐内容
+// 同 scrollLive 的理由。
+func (m *Model) gotoLiveBottom() bool {
+	p := m.focusPanel()
+	if p == nil {
+		return false
+	}
+	p.follow = true
+	p.vp.SetContentLines(p.buf)
+	p.vp.SetYOffset(max(0, len(p.buf)-p.vp.Height()))
+	return true
+}
+
+// copyLiveSearchCmd 复制焦点面板的落盘搜索命令——实时与搜索两个入口的
+// 衔接：另开终端粘贴即得「边跟随边搜索」。
+func (m *Model) copyLiveSearchCmd() tea.Cmd {
+	p := m.focusPanel()
+	if p == nil {
+		return nil
+	}
+	cmd := "scx-rg --follow " + p.path
+	if m.writeClipboard == nil {
+		m.writeClipboard = writeClipboardDefault
+	}
+	if err := m.writeClipboard(cmd); err != nil {
+		m.notice = "复制失败: " + err.Error()
+		return nil
+	}
+	m.notice = "已复制: " + cmd
+	return nil
 }

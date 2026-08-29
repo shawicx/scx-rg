@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -168,4 +169,133 @@ func TestLiveGolden(t *testing.T) {
 	goldenFrame(t, "live-4", liveFrame(t, map[string][]string{
 		"a1": {"line-a"}, "b2": {"line-b"}, "c3": {"line-c"}, "d4": {"line-d"},
 	}))
+}
+
+// longStream 写 n 行后长驻到 ctx 取消（模拟运行中的容器）：
+// drain 靠 liveDrainWait 限时收束读链，不走流自然结束路径。
+func longStream(n int) func(context.Context, logs.Target, int, string, func(string)) error {
+	return func(ctx context.Context, tgt logs.Target, tail int, path string, onLine func(string)) error {
+		for i := 0; i < n; i++ {
+			onLine(fmt.Sprintf("line-%02d", i))
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+}
+
+func TestLiveScrollPausesFollow(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}},
+		func(ctx context.Context, tgt logs.Target, tail int, path string, onLine func(string)) error {
+			for i := 0; i < 60; i++ {
+				onLine(fmt.Sprintf("line-%02d", i))
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		})
+	m.drain(m.Init())
+	p := m.livePanels[0]
+	p.vp.SetYOffset(0) // 直接翻到顶，模拟上翻
+	p.follow = false
+	m.scrollLive(-1) // 再往上滚一行
+	if p.follow {
+		t.Fatal("离开底部应暂停跟随")
+	}
+	bottomBefore := max(0, len(p.buf)-p.vp.Height())
+	m.gotoLiveBottom()
+	if !p.follow || p.vp.YOffset() != bottomBefore {
+		t.Fatalf("G 应回底并恢复跟随: follow=%v y=%d want=%d", p.follow, p.vp.YOffset(), bottomBefore)
+	}
+}
+
+func TestLiveFocusSwitch(t *testing.T) {
+	m := newLiveModel(t,
+		[]logs.Target{{Kind: "docker", Name: "a"}, {Kind: "docker", Name: "b"}},
+		fakeStream(map[string][]string{"a": {"la"}, "b": {"lb"}}))
+	m.drain(m.Init())
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.liveFocus != 1 {
+		t.Fatalf("Tab 应切到 2 号面板, got %d", m.liveFocus)
+	}
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "3"})
+	// 只有 2 个面板：3 应被忽略
+	if m.liveFocus != 1 {
+		t.Fatalf("越界数字键应忽略, got %d", m.liveFocus)
+	}
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "2"})
+	if m.liveFocus != 1 {
+		t.Fatalf("数字键 2 应直达 2 号面板, got %d", m.liveFocus)
+	}
+}
+
+func TestLiveCopySearchCommand(t *testing.T) {
+	var copied string
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}}, fakeStream(map[string][]string{"web": {"l"}}))
+	m.writeClipboard = func(s string) error { copied = s; return nil }
+	m.drain(m.Init())
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "y"})
+	want := "scx-rg --follow " + m.livePanels[0].path
+	if copied != want {
+		t.Fatalf("y 应复制搜索命令: %q want %q", copied, want)
+	}
+	if !strings.Contains(m.notice, "已复制") {
+		t.Fatalf("应有复制提示: %q", m.notice)
+	}
+}
+
+func TestLiveHelpOverlay(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}}, fakeStream(map[string][]string{"web": {"l"}}))
+	m.drain(m.Init())
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyF1})
+	if !m.helpOverlay {
+		t.Fatal("F1 应打开帮助")
+	}
+	if f := m.frame(); !strings.Contains(f, "实时日志") {
+		t.Fatalf("帮助应含实时分组:\n%s", f)
+	}
+}
+
+// TestLiveResizeKeepsPausedOffset resize 重建视口须保留暂停跟随面板的偏移：
+// viewport.New 出来的新视口 YOffset 从 0 开始，不保存旧偏移就会静默回顶
+// （跟随面板贴底不受影响，只有上翻暂停态会丢位置）。
+func TestLiveResizeKeepsPausedOffset(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}}, longStream(60))
+	m.drain(m.Init())
+	p := m.livePanels[0]
+	p.vp.SetYOffset(10) // 模拟上翻到中部并暂停跟随
+	p.follow = false
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if p.follow {
+		t.Fatal("resize 不应改变跟随标志")
+	}
+	if p.vp.YOffset() != 10 {
+		t.Fatalf("resize 应保留暂停偏移 10, got %d", p.vp.YOffset())
+	}
+}
+
+// TestLivePausedScrollSyncsNewLines 暂停跟随期间新行只入缓冲不重建视口
+// （liveLinesMsg 仅在 follow 时 rebuild），滚动/回底前须先把视口内容与
+// 缓冲对齐——否则 maxY 按新缓冲计、SetYOffset 却被旧内容 clamp，G 会
+// 落在过期底部。
+func TestLivePausedScrollSyncsNewLines(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}},
+		func(ctx context.Context, tgt logs.Target, tail int, path string, onLine func(string)) error {
+			for i := 0; i < 60; i++ {
+				onLine(fmt.Sprintf("line-%02d", i))
+			}
+			return nil // 短流收束：缓冲定格，后续行由测试直接注入消息
+		})
+	m.drain(m.Init())
+	p := m.livePanels[0]
+	p.vp.SetYOffset(0)
+	p.follow = false
+	// 暂停期间新行到达：只入缓冲，视口内容冻结在暂停时刻
+	_, _ = m.Update(liveLinesMsg{seq: m.liveSeq, panel: 0, lines: []string{"extra"}})
+	if p.vp.YOffset() != 0 || len(p.buf) != 61 {
+		t.Fatalf("暂停态新行应入缓冲不动视口: y=%d buf=%d", p.vp.YOffset(), len(p.buf))
+	}
+	m.gotoLiveBottom()
+	want := max(0, len(p.buf)-p.vp.Height())
+	if !p.follow || p.vp.YOffset() != want {
+		t.Fatalf("G 应回到含新行的缓冲底部: follow=%v y=%d want=%d", p.follow, p.vp.YOffset(), want)
+	}
 }
