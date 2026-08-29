@@ -42,8 +42,7 @@ func streamLoop(rc io.Reader, path string, onLine func(string)) error {
 // 逐行 tee 到 path 并回调 onLine；stdout 与 stderr 合流处理（见
 // streamCommand）。契约：err == nil ⇔ 干净结束——容器停止是正常 EOF，
 // ctx 取消同样视为正常收束（返回 nil，与容器停止一致）；进程非零退出
-// 且非取消时返回错误（启动错误文本已作为日志行入流）。取代旧
-// logs.Follow（落盘临时文件、无回调）。
+// 且非取消时返回错误（启动错误文本已作为日志行入流）。
 func Stream(ctx context.Context, t Target, tail int, path string, onLine func(string)) error {
 	return streamCommand(ctx, t.Bin(), followArgs(t, tail), path, onLine)
 }

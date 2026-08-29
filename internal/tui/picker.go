@@ -185,7 +185,7 @@ func (m *Model) reenterPicker() tea.Cmd {
 func (m *Model) shutdown() {
 	saveHistory(m.history, m.historyCap())
 	m.stopSearch()
-	m.stopLive() // 停流即可，无独立跟随进程（FollowPick 已退役）
+	m.stopLive() // 停流即可，无独立跟随进程
 }
 
 // handlePickerKey 选择器阶段的按键：↑↓ 导航、Tab 多选标记（仅实时模式）、
