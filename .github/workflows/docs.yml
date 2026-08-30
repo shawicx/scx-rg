@@ -1,0 +1,37 @@
+# 文档站构建与发布(GitHub Pages)。首次使用:仓库 Settings → Pages →
+# Source 选 "GitHub Actions",然后在本 workflow 页面手动 Run workflow。
+# 之后可把触发条件改为 push 到 main(限 docs/**)实现自动发布。
+name: docs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: withastro/action@v3
+        with:
+          path: ./docs
+      - name: 注入项目站点 base 路径
+        run: echo "DOCS_BASE=/scx-rg" >> "$GITHUB_ENV"
+      # withastro/action 在 post 步骤执行 npm run build,base 经 env 生效
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

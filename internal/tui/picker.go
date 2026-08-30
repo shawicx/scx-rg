@@ -16,7 +16,8 @@ import (
 )
 
 // 源选择器：scx-rg docker / scx-rg k8s 无参数进入。
-// 列出容器/Pod → 模糊过滤 → Enter 抓取快照（或跟随）切入既有的检索界面，
+// 列出容器/Pod → 模糊过滤 → Tab 多选（实时模式 ≤4）→ Enter 分流：
+// LivePick 进实时多面板，否则抓取快照切入既有的检索界面，
 // 免去记忆与抄写容器名。全部数据源可注入以便测试。
 
 const defaultLogTail = 100000
@@ -27,7 +28,7 @@ type (
 		sources []logs.Source
 		err     error
 	}
-	// snapshotReadyMsg 抓取（快照/跟随启动）完成。
+	// snapshotReadyMsg 抓取完成（成功携带快照路径）。
 	snapshotReadyMsg struct {
 		path string
 		err  error
@@ -81,29 +82,18 @@ func (m *Model) pickerFilter() {
 	m.pickerPreview()
 }
 
-// fetchTarget 抓取选中目标：快照写入 SnapshotDir，或启动跟随进程。
+// targetKey 选择器多选的稳定键：kind/namespace/name。
+func targetKey(t logs.Target) string {
+	return t.Kind + "/" + t.Namespace + "/" + t.Name
+}
+
+// fetchTarget 抓取选中目标的一次性快照写入 SnapshotDir。
+// 实时跟随已由 startLive（LivePick 路径）接管，这里只剩快照路径。
 func (m *Model) fetchTarget(t logs.Target) tea.Cmd {
 	m.pickerName = t.Name
 	tail := m.cfg.LogTail
 	if tail <= 0 {
 		tail = defaultLogTail
-	}
-	if m.followPick {
-		ctx, cancel := context.WithCancel(context.Background())
-		m.cancelFollow = cancel
-		path := filepath.Join(m.snapshotDir, t.Kind+".log")
-		follow := m.cfg.FollowLog
-		if follow == nil {
-			follow = func(ctx context.Context, t logs.Target, path string) error {
-				return logs.Follow(ctx, t, tail, path)
-			}
-		}
-		return func() tea.Msg {
-			if err := follow(ctx, t, path); err != nil {
-				return snapshotReadyMsg{err: err}
-			}
-			return snapshotReadyMsg{path: path}
-		}
 	}
 	fetch := m.cfg.FetchLog
 	if fetch == nil {
@@ -125,8 +115,7 @@ func (m *Model) fetchTarget(t logs.Target) tea.Cmd {
 	}
 }
 
-// handleSnapshotReady 切入检索阶段：换根目录、清空过滤词、重跑搜索；
-// 跟随模式下登记 FollowFile 并启动轮询。
+// handleSnapshotReady 切入检索阶段：换根目录、清空过滤词、重跑搜索。
 func (m *Model) handleSnapshotReady(msg snapshotReadyMsg) tea.Cmd {
 	m.pickLoading = false
 	if msg.err != nil {
@@ -140,18 +129,7 @@ func (m *Model) handleSnapshotReady(msg snapshotReadyMsg) tea.Cmd {
 	m.input.SetValue("")
 	m.updatePlaceholder()
 	m.pickerPreview()
-	var cmds []tea.Cmd
-	cmds = append(cmds, m.runSearch())
-	if m.followPick {
-		m.cfg.FollowFile = msg.path
-		if st, err := os.Stat(msg.path); err == nil {
-			m.followSize = st.Size()
-		}
-		if !m.onceMode {
-			cmds = append(cmds, followTick())
-		}
-	}
-	return tea.Batch(cmds...)
+	return m.runSearch()
 }
 
 func pickerKindLabel(kind string) string {
@@ -169,16 +147,15 @@ func pickerTargetWord(kind string) string {
 	return "容器"
 }
 
-// reenterPicker 检索阶段返回源选择器：停掉搜索与跟随进程、清空检索态并
+// reenterPicker 检索阶段返回源选择器：停掉搜索与实时流、清空检索态并
 // 重载源列表（容器可能已增减），供重新选择目标。docker/k8s 会话 Ctrl+R。
 func (m *Model) reenterPicker() tea.Cmd {
 	m.stopSearch()
-	if m.cancelFollow != nil {
-		m.cancelFollow()
-		m.cancelFollow = nil
-	}
+	m.stopLive()          // 实时会话停流清面板（docker/k8s 实时 → 回选择器重选）
 	m.cfg.FollowFile = "" // 跟随轮询与实时滑窗随之停止；重选目标后再登记
 	m.followKeep = ""
+	m.pickerMarks = map[string]bool{} // 上轮多选标记不跨会话残留（否则 Enter 复活旧面板）
+	m.notice = ""
 	m.gitLog = false
 	m.rangeBar = false
 	m.input.SetValue("")
@@ -204,17 +181,15 @@ func (m *Model) reenterPicker() tea.Cmd {
 	return m.loadPicker()
 }
 
-// shutdown 退出前清理：杀掉搜索 rg 与跟随进程、落盘搜索历史。幂等。
+// shutdown 退出前清理：杀掉搜索 rg 进程、停实时流、落盘搜索历史。幂等。
 func (m *Model) shutdown() {
 	saveHistory(m.history, m.historyCap())
 	m.stopSearch()
-	if m.cancelFollow != nil {
-		m.cancelFollow()
-		m.cancelFollow = nil
-	}
+	m.stopLive() // 停流即可，无独立跟随进程
 }
 
-// handlePickerKey 选择器阶段的按键：↑↓ 导航、Enter 抓取、Ctrl+R 刷新、
+// handlePickerKey 选择器阶段的按键：↑↓ 导航、Tab 多选标记（仅实时模式）、
+// Enter 分流（LivePick 进实时多面板，否则快照检索）、Ctrl+R 刷新、
 // 输入即时过滤；Esc 退出。
 func (m *Model) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -233,11 +208,48 @@ func (m *Model) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "enter":
-		if !m.pickLoading && m.sel < len(m.pickerView) {
-			m.pickLoading = true
-			m.searchErr = nil
-			return m, m.fetchTarget(m.pickerView[m.sel].Target)
+		if m.pickLoading || len(m.pickerView) == 0 || m.sel >= len(m.pickerView) {
+			return m, nil
 		}
+		if m.cfg.LivePick {
+			// 实时模式：按 pickerView 顺序收集标记项（顺序稳定，与列表一致）；
+			// 无标记时退回当前选中项——单容器直达与多选同一入口
+			var targets []logs.Target
+			for _, s := range m.pickerView {
+				if m.pickerMarks[targetKey(s.Target)] {
+					targets = append(targets, s.Target)
+				}
+			}
+			if len(targets) == 0 {
+				targets = []logs.Target{m.pickerView[m.sel].Target}
+			}
+			m.picking = false
+			m.input.Blur() // 实时视图无文本输入，回选择器时 reenterPicker 再 Focus
+			m.notice = ""
+			return m, m.startLive(targets)
+		}
+		m.pickLoading = true
+		m.searchErr = nil
+		return m, m.fetchTarget(m.pickerView[m.sel].Target)
+
+	case "tab":
+		// 实时模式多选标记；--snapshot（LivePick=false）禁用——快照路径
+		// 单目标语义与改造前完全一致
+		if !m.cfg.LivePick || m.pickLoading || m.sel >= len(m.pickerView) {
+			return m, nil
+		}
+		k := targetKey(m.pickerView[m.sel].Target)
+		if m.pickerMarks[k] {
+			delete(m.pickerMarks, k)
+			m.notice = ""
+			return m, nil
+		}
+		if len(m.pickerMarks) >= liveMaxPanels {
+			m.notice = "实时模式最多 4 个容器"
+			return m, nil
+		}
+		m.pickerMarks[k] = true
+		m.notice = ""
 		return m, nil
 
 	case "up", "ctrl+p", "alt+p":
@@ -297,7 +309,11 @@ func (m *Model) pickerPreview() {
 	if s.Status != "" {
 		b.WriteString("状态  " + pickerStatusStyle(s.Status).Render(s.Status) + "\n")
 	}
-	b.WriteString("\n" + styleDim.Render("Enter 抓取最近日志并检索") + "\n")
+	if m.cfg.LivePick {
+		b.WriteString("\n" + styleDim.Render("Enter 实时日志（Tab 多选 ≤4）") + "\n")
+	} else {
+		b.WriteString("\n" + styleDim.Render("Enter 抓取最近日志并检索") + "\n")
+	}
 	b.WriteString(styleDim.Render("输入关键词过滤 / Ctrl+R 刷新 / Esc 退出") + "\n")
 	m.vp.SetContent(b.String())
 	m.prevPath = ""
@@ -362,6 +378,9 @@ func (m *Model) pickerRow(i, w int) string {
 	marker := "  "
 	if i == m.sel {
 		marker = styleRowMarker.Render("> ")
+	}
+	if m.pickerMarks[targetKey(s.Target)] {
+		marker = styleRowMarker.Render("✓ ")
 	}
 	name := highlightMatch(s.Target.Name, m.input.Value())
 	detail := styleDim.Render(s.Detail)

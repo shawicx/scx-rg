@@ -89,13 +89,19 @@ type Config struct {
 
 	// 源选择器（scx-rg docker / scx-rg k8s 无参数进入）
 	PickerKind  string // "docker" | "kubectl"
-	SnapshotDir string // 快照落盘目录（由 main 创建与清理）
-	FollowPick  bool   // 选中目标后跟随而非一次性快照
+	SnapshotDir string // 快照落盘目录（--snapshot 路径，由 main 创建与清理）
 	LogTail     int    // 抓取行数上限（0 = 默认 100000）
 	// 以下可注入 fake 以便测试；为 nil 时调用 logs 包真实实现。
 	ListSources func(ctx context.Context, kind string) ([]logs.Source, error)
 	FetchLog    func(ctx context.Context, t logs.Target) (string, error)
-	FollowLog   func(ctx context.Context, t logs.Target, path string) error
+
+	// 实时多面板（docker/k8s 默认）：LivePick 选择器 Enter 进实时；
+	// LiveTargets 非空跳过选择器直达；LiveDir tee 落盘根目录；
+	// StreamLog 可注入 fake（nil 用 logs.Stream）。
+	LivePick    bool
+	LiveDir     string
+	LiveTargets []logs.Target
+	StreamLog   func(ctx context.Context, t logs.Target, tail int, path string, onLine func(string)) error
 }
 
 type (
@@ -244,16 +250,23 @@ type Model struct {
 	gitLoading bool
 
 	// 源选择器状态
-	picking      bool          // 处于「选目标」阶段
-	pickerKind   string        // docker | kubectl
-	pickerSrcs   []logs.Source // 全量列表
-	pickerView   []logs.Source // 过滤后的可见列表
-	pickerName   string        // Enter 选中的目标名
-	pickLoading  bool          // 抓取中
-	listLoading  bool          // 列表加载中
-	snapshotDir  string
-	followPick   bool
-	cancelFollow context.CancelFunc // 跟随进程的取消句柄
+	picking     bool          // 处于「选目标」阶段
+	pickerKind  string        // docker | kubectl
+	pickerSrcs  []logs.Source // 全量列表
+	pickerView  []logs.Source // 过滤后的可见列表
+	pickerName  string        // Enter 选中的目标名
+	pickLoading bool          // 抓取中
+	listLoading bool          // 列表加载中
+	snapshotDir string
+
+	// 实时多面板状态（buf/vp 等仅 Update goroutine 读写）
+	liveMode    bool
+	livePanels  []*livePanel
+	liveFocus   int
+	liveSeq     int // 会话序号：重进实时后旧管线消息按 seq 丢弃
+	liveCh      chan tea.Msg
+	liveCancel  context.CancelFunc
+	pickerMarks map[string]bool // 选择器 Tab 标记（key=targetKey）
 
 	// 复制/翻页
 	writeClipboard func(s string) error // 默认 OSC 52 → /dev/tty，可注入 fake
@@ -294,13 +307,19 @@ func New(cfg Config) *Model {
 			m.followSize = st.Size() // 以当前大小为基线，之后增长才触发刷新
 		}
 	}
+	// pickerKind 不与「进选择器」捆绑：LiveTargets 直达实时的会话同样需要
+	// kind——头部徽标、实时状态栏与 Ctrl+R 重选的列源类型（loadPicker）都
+	// 读它；缺失时徽标 kind 空缺，k8s 直达会话重选还会误列 docker 容器。
 	if cfg.PickerKind != "" {
-		m.picking = true
 		m.pickerKind = cfg.PickerKind
+	}
+	// PickerKind 与 LiveTargets 互斥：LiveTargets 非空时直达实时不进选择器
+	if cfg.PickerKind != "" && len(cfg.LiveTargets) == 0 {
+		m.picking = true
 		m.snapshotDir = cfg.SnapshotDir
-		m.followPick = cfg.FollowPick
 		m.listLoading = true
 		m.mode = ModeContent
+		m.pickerMarks = map[string]bool{}
 		ti.Placeholder = "输入名称过滤，实时匹配..."
 	} else if cfg.PickLine {
 		m.updatePlaceholder() // 直达日志路径（docker <名字> / --follow）：初始即日志语义
@@ -309,8 +328,11 @@ func New(cfg Config) *Model {
 }
 
 // Init 启动时立即触发一次空查询搜索（files 模式列出全部文件）；
-// 选择器模式改为加载源列表，不发搜索。
+// 选择器模式改为加载源列表，不发搜索；LiveTargets 直达实时模式。
 func (m *Model) Init() tea.Cmd {
+	if len(m.cfg.LiveTargets) > 0 {
+		return m.startLive(m.cfg.LiveTargets)
+	}
 	if m.picking {
 		return tea.Batch(textinput.Blink, m.loadPicker())
 	}

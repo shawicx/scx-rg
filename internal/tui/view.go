@@ -42,6 +42,10 @@ func (m *Model) frame() string {
 		parts = append(parts, m.dirView(), m.statusView())
 	case m.replaceOpen:
 		parts = append(parts, m.replaceView(), m.statusView())
+	case m.liveMode:
+		// 实时多面板：置于 default 之前、各浮层之后——帮助/命令面板等
+		// 浮层在实时模式下仍可弹出并覆盖分屏。
+		parts = append(parts, m.liveView(), m.statusView())
 	default:
 		parts = append(parts,
 			lipgloss.JoinHorizontal(lipgloss.Top, m.listView(), m.previewView()),
@@ -52,6 +56,13 @@ func (m *Model) frame() string {
 }
 
 func (m *Model) headerView() string {
+	// 实时模式头部：无搜索框（输入已被分屏取代），只留标题与键位速记。
+	if m.liveMode {
+		name := " 实时 " + pickerKindLabel(m.pickerKind) + " "
+		inner := styleAppTitle.Render(name) + styleDim.Render("  j/k 滚动 · Tab 切面板 · ? 帮助")
+		inner = ansiTruncate(inner, m.frameW()-4)
+		return styleInputBox.Width(m.frameW()).Render(inner)
+	}
 	name := " scx-rg "
 	if m.picking {
 		if m.pickerKind == "kubectl" {
@@ -232,6 +243,9 @@ func (m *Model) statusLine(left, right string) string {
 }
 
 func (m *Model) statusView() string {
+	if m.liveMode {
+		return m.liveStatus()
+	}
 	if m.picking {
 		left := styleBadgeFiles.Render("选择 " + pickerKindLabel(m.pickerKind))
 		if m.pickLoading {
@@ -243,7 +257,13 @@ func (m *Model) statusView() string {
 		if m.searchErr != nil {
 			left += " / " + styleErrText.Render(m.searchErr.Error())
 		}
+		if m.notice != "" {
+			left += " / " + styleMatch.Render(m.notice)
+		}
 		right := "上下选择 / 输入过滤 / Ctrl+R 刷新 / Enter 抓取并检索 / Esc 退出"
+		if m.cfg.LivePick {
+			right = "上下选择 / Tab 多选(≤4) / Ctrl+R 刷新 / Enter 实时 / Esc 退出"
+		}
 		return m.statusLine(left, right)
 	}
 	var badge string

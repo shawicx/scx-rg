@@ -221,8 +221,8 @@ func readStdinCandidates() ([]search.Candidate, error) {
 	return out, nil
 }
 
-// runLogSource docker/k8s 子命令：默认持续跟随新日志（tail -f 式，
-// 初始内容与一次性快照相同且实时更新）；--snapshot 退回一次性快照。
+// runLogSource docker/k8s 子命令：默认实时多面板日志（tee 落盘缓存目录，
+// 默认 scx-rg 命令随时可搜）；--snapshot 退回一次性快照+检索（旧行为）。
 func runLogSource(kind string, args []string) {
 	target := logs.Target{Kind: kind}
 	if kind == "k8s" {
@@ -230,34 +230,78 @@ func runLogSource(kind string, args []string) {
 	}
 	var snapshot, legacyFollow bool
 	fs := flag.NewFlagSet(kind, flag.ContinueOnError)
-	fs.BoolVar(&snapshot, "snapshot", false, "只抓取一次快照，不跟随（默认跟随）")
-	fs.BoolVar(&legacyFollow, "follow", false, "（默认已跟随，兼容保留）")
-	fs.BoolVar(&legacyFollow, "f", false, "（默认已跟随，兼容保留）")
+	fs.BoolVar(&snapshot, "snapshot", false, "一次性快照后进入检索（默认实时多面板）")
+	fs.BoolVar(&legacyFollow, "follow", false, "（默认已实时，兼容保留）")
+	fs.BoolVar(&legacyFollow, "f", false, "（默认已实时，兼容保留）")
 	fs.StringVar(&target.Namespace, "n", "", "namespace（k8s）")
 	fs.StringVar(&target.Container, "c", "", "指定容器（k8s 多容器 Pod）")
 	_ = fs.Parse(args)
-	follow := legacyFollow || !snapshot // 日志是活数据：默认跟随，避免「搜不到最新日志」
+	rest := fs.Args()
 
 	if !target.Available() {
 		die(fmt.Errorf("未找到 %s 命令", target.Bin()))
 	}
+
+	if snapshot {
+		runSnapshotSession(kind, target, rest) // 旧流程：需要 rg
+		return
+	}
+
+	// 实时模式：tee 落盘 os.UserCacheDir()/scx-rg/logs（稳定路径，
+	// 默认命令/--follow 可直接检索）；实时视图本身不依赖 rg。
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		die(err)
+	}
+	liveDir := filepath.Join(cache, "scx-rg", "logs")
+	if err := os.MkdirAll(liveDir, 0o755); err != nil {
+		die(err)
+	}
+
+	cfg := tui.Config{
+		PickerKind:  target.Kind,
+		LiveDir:     liveDir,
+		LogTail:     logTail,
+		Mode:        tui.ModeContent,
+		ImgProto:    preview.ProtocolNone,
+		RgAvailable: search.RgAvailable(),
+	}
+	if len(rest) > 0 {
+		target.Name = rest[0]
+		cfg.LiveTargets = []logs.Target{target} // 跳过选择器直达单面板
+		// LivePick 直达也须置位：Ctrl+R 重进选择器时 Tab 多选与 Enter 回
+		// 实时都依赖它，缺失会退化成 --snapshot 快照语义，与状态栏
+		// 「Ctrl+R 重选」提示矛盾。
+		cfg.LivePick = true
+		fmt.Fprintf(os.Stderr, "实时日志 %s %s（落盘 %s，Ctrl+C 退出）…\n",
+			kind, target.Name, logs.LivePath(liveDir, target))
+	} else {
+		cfg.LivePick = true // 选择器 Tab 多选 ≤4，Enter 进实时
+	}
+	p := tea.NewProgram(tui.New(cfg))
+	final, err := p.Run()
+	if err != nil {
+		die(err)
+	}
+	printPicked(final)
+}
+
+// runSnapshotSession --snapshot 旧流程：临时目录快照 + 既有检索界面。
+// 快照文件随会话退出删除，行为与分离改造前一致。
+func runSnapshotSession(kind string, target logs.Target, rest []string) {
 	if !search.RgAvailable() {
 		die(errors.New("日志检索需要 ripgrep（brew install ripgrep）"))
 	}
-
 	dir, err := os.MkdirTemp("", "scx-rg-log-")
 	if err != nil {
 		die(err)
 	}
 	defer os.RemoveAll(dir)
 
-	// 无参数：进入源选择器（免记忆），选中后按上述默认跟随/快照。
-	rest := fs.Args()
 	if len(rest) == 0 {
 		m := tui.New(tui.Config{
 			PickerKind:  target.Kind,
 			SnapshotDir: dir,
-			FollowPick:  follow,
 			LogTail:     logTail,
 			Mode:        tui.ModeContent,
 			ImgProto:    preview.ProtocolNone,
@@ -273,41 +317,24 @@ func runLogSource(kind string, args []string) {
 		return
 	}
 	target.Name = rest[0]
-	logPath := filepath.Join(dir, kind+".log")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	if follow {
-		fmt.Fprintf(os.Stderr, "正在跟随 %s %s 的日志（初始 tail %d 行，实时更新，Ctrl+C 退出）…\n",
-			kind, target.Name, logTail)
-		if err := logs.Follow(ctx, target, logTail, logPath); err != nil {
-			die(err)
-		}
-	} else {
-		fmt.Fprintf(os.Stderr, "正在抓取 %s %s 最近 %d 行日志快照…\n", kind, target.Name, logTail)
-		snap, err := logs.Snapshot(ctx, nil, target, logTail)
-		if err != nil {
-			die(err)
-		}
-		if err := os.Rename(snap, logPath); err != nil {
-			_ = os.Remove(snap)
-			die(err)
-		}
+	fmt.Fprintf(os.Stderr, "正在抓取 %s %s 最近 %d 行日志快照…\n", kind, target.Name, logTail)
+	snap, err := logs.Snapshot(context.Background(), nil, target, logTail)
+	if err != nil {
+		die(err)
 	}
-
-	cfg := tui.Config{
+	logPath := filepath.Join(dir, kind+".log")
+	if err := os.Rename(snap, logPath); err != nil {
+		_ = os.Remove(snap)
+		die(err)
+	}
+	m := tui.New(tui.Config{
 		Root:        dir,
 		Mode:        tui.ModeContent,
 		ImgProto:    preview.ProtocolNone,
 		RgAvailable: true,
 		Title:       kind + ":" + target.Name,
 		PickLine:    true, // Enter 输出选中日志行（快照文件退出即删）
-	}
-	if follow {
-		cfg.FollowFile = logPath
-	}
-	m := tui.New(cfg)
+	})
 	p := tea.NewProgram(m)
 	final, err := p.Run()
 	if err != nil {

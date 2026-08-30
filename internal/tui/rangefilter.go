@@ -40,7 +40,7 @@ var rangeCapPresets = []struct {
 }
 
 const (
-	liveDurIdx     = 0 // 「实时」在时间预设中的下标（滑动窗口预设）
+	liveDurIdx     = 0  // 「实时」在时间预设中的下标（滑动窗口预设）
 	defaultLiveCap = 50 // 时间=实时且条数停在「全部」时收窄到的默认档
 )
 

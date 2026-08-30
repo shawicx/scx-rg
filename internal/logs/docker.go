@@ -57,7 +57,8 @@ func snapshotArgs(t Target, tail int) []string {
 	return []string{"logs", "--timestamps", "--tail", strconv.Itoa(tail), t.Name}
 }
 
-// followArgs 拼装持续跟随参数（-f）。
+// followArgs 拼装持续跟随参数（-f），供 Stream（logs -f 实时流）使用；
+// 旧的 Follow 落盘实现已删除。
 func followArgs(t Target, tail int) []string {
 	if t.Kind == "kubectl" {
 		args := []string{"logs", t.Name}
@@ -107,25 +108,4 @@ func Snapshot(ctx context.Context, run Runner, t Target, tail int) (string, erro
 		return "", err
 	}
 	return f.Name(), nil
-}
-
-// Follow 启动 `logs -f` 长驻进程，把输出（含初始 tail 部分）持续 append 到 path；
-// ctx 取消时进程自动被杀。适合 tail -f 式实时追新。
-func Follow(ctx context.Context, t Target, tail int, path string) error {
-	cmd := exec.CommandContext(ctx, t.Bin(), followArgs(t, tail)...)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	cmd.Stdout = f
-	cmd.Stderr = nil // 工具告警不混入日志
-	if err := cmd.Start(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	go func() {
-		_ = cmd.Wait()
-		_ = f.Close()
-	}()
-	return nil
 }

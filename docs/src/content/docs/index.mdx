@@ -1,0 +1,29 @@
+---
+title: scx-rg
+description: 终端里的实时搜索与日志检索工具——rg 结果浏览、docker/k8s 日志、图片预览,单个二进制。
+template: splash
+hero:
+  tagline: 终端里的实时搜索与日志检索工具。rg 结果浏览、Docker/K8s 日志、图片预览——一个二进制全搞定。
+  actions:
+    - text: 快速开始
+      link: /guides/getting-started/
+      icon: right-arrow
+    - text: GitHub
+      link: https://github.com/shawricx/scx-rg
+      icon: external
+  image:
+    file: ../../assets/logo.svg
+features:
+  - title: 实时搜索 + 预览
+    icon: magnifier
+    description: "输入即搜(200ms 防抖),左侧结果列表、右侧语法高亮预览,内容模式自动跳到命中行;搜索进行中旧结果保持可见,不闪屏。"
+  - title: 日志实时与检索
+    icon: document
+    description: "`scx-rg docker` 选容器进实时多面板(≤4 分屏、tee 落盘、y 一键复制搜索命令);默认命令随时检索落盘文件,`--follow` 边跟边搜。"
+  - title: 图片与结构化预览
+    icon: star
+    description: "kitty/sixel 协议终端内直显图片(自动降级 halfblock);JSON 自动成树、CSV/TSV 对齐表格。"
+  - title: fzf 式工作流
+    icon: set
+    description: "Enter 输出路径接管道,Ctrl+Space 多选,`|` 把结果喂给任意 shell 命令,`--provider stdin` 变身通用模糊筛选器。"
+---

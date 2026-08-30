@@ -2,6 +2,8 @@
 
 终端里的实时搜索 + 预览工具。Go + [Bubble Tea](https://github.com/charmbracelet/bubbletea) + [Lipgloss](https://github.com/charmbracelet/lipgloss)。
 
+📖 **在线文档**(用户指南/键位/配置/FAQ):[shawricx.github.io/scx-rg](https://shawricx.github.io/scx-rg)(源码在 [docs/](docs/,Astro Starlight,`npm run dev` 本地预览));架构与代码导航见 [.wiki/](.wiki/README.md)。
+
 ## 安装
 
 一键安装（自动识别平台，下载最新 Release 并校验 sha256，装到 /usr/local/bin）：
@@ -30,7 +32,7 @@ macOS 首次运行未签名二进制若被 Gatekeeper 拦截：`xattr -d com.app
 
 ## 功能
 
-- **实时防抖搜索**：输入即搜（默认 200ms 防抖），过期结果自动丢弃（版本号判废）
+- **实时防抖搜索**：输入即搜（默认 200ms 防抖），过期结果自动丢弃（版本号判废）；搜索进行中旧结果保持可见，新结果到达才整体替换，输入时不闪屏
 - **双模式**：`Tab` 切换
   - 文件模式：fzf 式模糊匹配（空格分词 AND、边界/连续加权评分排序，命中字符高亮）；完整子串命中大幅优先，散落拼凑的低质量匹配直接过滤（宁缺毋滥）；`Ctrl+F` 可切换为精确匹配（分词必须是完整子串）；优先用 `rg --files` 枚举（尊重 .gitignore），无 rg 时回退内置遍历
   - 内容模式：`rg --json` 流式解析，结果边搜边出；输入变化立即杀掉上一轮 rg 进程；查询默认按正则解析，**不是合法正则时自动按字面量兜底**（搜 `log.error(` 这类含元字符的文本不报错，状态栏提示），`Ctrl+F` 可手动粘性切换字面量（-F）/正则
@@ -56,22 +58,35 @@ macOS 首次运行未签名二进制若被 Gatekeeper 拦截：`xattr -d com.app
 - **结构化预览**：JSON 自动缩进成树、CSV/TSV 对齐表格（列宽自适应、CJK 宽度参与计算，500 行/30 列封顶）；格式化重排后行号不对应原文件，禁用跳转，查询高亮与日志级别着色照常
 - **配置文件**：`~/.config/scx-rg/config.toml` 自定义防抖、忽略目录、主题、编辑器与历史，见下文
 
-## Docker / Kubernetes / 服务器日志检索
+## Docker / Kubernetes / 服务器日志
+
+实时看日志与搜索日志是两个独立入口：`docker`/`k8s` 子命令只做实时多面板（lazydocker 式），边渲染边 tee 落盘；默认 `scx-rg` 命令随时检索落盘文件。
 
 ```bash
-scx-rg docker                        # 交互选择容器（模糊过滤，免记名字），默认实时跟随
-scx-rg docker <容器名>                # 直达：tail 最近 100000 行并实时跟随
-scx-rg docker <容器名> --snapshot     # 只抓一次快照（不跟随）
+scx-rg docker                        # 选择器：Tab 多选 ≤4，Enter 进实时分屏
+scx-rg docker <容器名>                # 直达：跳过选择器，实时全屏单面板
+scx-rg docker <容器名> --snapshot     # 旧流程：一次性快照 + 检索界面
 
-scx-rg k8s                           # 交互选择 Pod，默认实时跟随
+scx-rg k8s                           # 选择器（Pod，Tab 多选 ≤4）
 scx-rg k8s <Pod名> [-n namespace] [-c 容器] [--snapshot]
 
-scx-rg --follow /var/log/app.log     # 本地服务器日志实时跟随
+scx-rg -path <落盘目录>               # 默认命令检索实时会话留下的日志（内容模式加 -mode content）
+scx-rg --follow <落盘文件>            # 边跟边搜（实时会话还在跑时效果最佳）
+scx-rg --follow /var/log/app.log     # 本地服务器日志实时跟随（不受影响）
 ```
 
-- **默认跟随**：日志是活数据，`docker logs -f --tail` 的初始内容与快照完全相同，且此后实时更新——不会再出现「刚产生的日志搜不到」；`--snapshot` 退回一次性快照
-- **留空即全量**：不输入关键词时直接展示抓到的全部日志（rg 空模式匹配每一行，同样受最新 5000 条窗口约束），输入后实时过滤、清空回到全量
-- **最新优先**：命中数很多时（如搜 `INFO`），日志模式保留**最新的 5000 条命中**（旧的滚出），配合 Ctrl+T 条数/时间筛选进一步收窄
+子命令上的 `--follow` / `-f` 旗标兼容保留（实时已是默认行为，加了无差别）；实时视图本身不依赖 ripgrep，`--snapshot` 检索需要。
+
+### 实时多面板
+
+| 功能 | 说明 | 操作方式 |
+|------|------|---------|
+| 多容器实时日志 | 最多 4 个容器分屏（1 全屏 / 2 上下 / 3 上 1 下 2 / 4 田字），流式追加自动贴底；面板标题 `●` 流存活 / `■` 容器已停止（缓冲保留可翻阅，不自动重启），某目标启动失败只在该面板内显示错误 | `scx-rg docker` 选择器 Tab 多选后 `Enter`；`scx-rg docker <名>` 直达全屏 |
+| 焦点面板滚动 | 上翻即暂停**该面板**跟随（其余面板不受影响），回底自动恢复 | `j`/`k`/`↑`/`↓`、`Ctrl+D`/`Ctrl+U`、`PgUp`/`PgDn`；`G`/`End` 回底恢复，`g`/`Home` 到顶 |
+| 焦点切换 | 焦点面板激活边框 + 标题 `◀` 指示 | `Tab`/`Shift+Tab` 循环；`1`-`4` 直达 |
+| 复制搜索命令 | 把焦点面板落盘文件拼成 `scx-rg --follow <路径>` 复制到剪贴板（OSC 52，另开终端粘贴即边跟边搜） | 实时视图按 `y` |
+| tee 落盘 | 实时日志同步写入 `<UserCacheDir>/scx-rg/logs/<kind>/[<ns>/]<名>.log`（macOS `~/Library/Caches/scx-rg/logs/…`，Linux `~/.cache/scx-rg/logs/…`；k8s 按 namespace 分目录）；带时间戳；会话启动时重写、退出后保留 | 自动进行，状态栏显示落盘目录 |
+| 帮助 / 重选 / 退出 | 实时键位浮层；停掉全部流进程回选择器换目标；清理退出 | `?`/`F1`；`Ctrl+R`/`Alt+R`；`Ctrl+C`/`Esc` |
 
 ### 容器 / Pod 选择器
 
@@ -79,14 +94,30 @@ scx-rg --follow /var/log/app.log     # 本地服务器日志实时跟随
 
 - 左侧列出全部容器（名称 · 镜像 · 状态，`Up`/`Running` 绿色标注）或 Pod（名称 · namespace · `就绪数/总数 状态`），右侧显示选中目标详情
 - 输入即模糊过滤（名称+镜像/namespace），`↑↓` 选择，`Ctrl+R` 刷新列表
-- `Enter` 抓取该目标最近 100000 行日志，无缝切入全文检索界面（配合过 `--follow` 则改为实时跟随）
+- `Tab` 标记/取消标记目标（最多 4 个，标第 5 个提示「实时模式最多 4 个容器」）；`Enter` 进实时分屏——有标记用标记集，无标记用光标项
 - 抓取失败（如 daemon 未启动）会显示错误并停留在选择器，可重试或换目标
+- **反悔随时回去**：实时阶段再按 `Ctrl+R`（或 `Alt+R`）返回选择器重新选容器/Pod（停掉全部实时进程，重新加载列表，容器可能已增减）
 
-- 跟随模式：日志持续写入快照，界面每 800ms 检测增长并自动重跑当前查询；**保持你的选中位置**（path:line 对齐），状态栏显示「* 跟随 / 大小」
+### 搜索日志（默认 scx-rg 命令）
+
+实时会话的落盘文件是普通文件（且路径稳定可预测），默认命令全功能可用：
+
+```bash
+scx-rg -path ~/Library/Caches/scx-rg/logs/docker -mode content   # 检索落盘日志（查询留空即全量）
+scx-rg --follow ~/Library/Caches/scx-rg/logs/docker/web.log      # 边跟边搜
+```
+
+- **边跟边搜**：`--follow` 下界面每 800ms 检测文件增长并自动重跑当前查询；**保持你的选中位置**（path:line 对齐），状态栏显示「* 跟随 / 大小」
+- **留空即全量**：不输入关键词时直接展示抓到的全部日志（rg 空模式匹配每一行，同样受最新 5000 条窗口约束），输入后实时过滤、清空回到全量
+- **最新优先**：命中数很多时（如搜 `INFO`），保留**最新的 5000 条命中**（旧的滚出），配合 Ctrl+T 条数/时间筛选进一步收窄
 - **Ctrl+T 可视化筛选**：「过去 15 分钟」「最近 100 条」等常用参数直接在界面上选，即时生效，详见下方按键表
-- 快照（`docker logs` / `kubectl logs --timestamps --tail`）带时间戳；`Enter` 把选中的日志行文本输出到 stdout；快照文件退出自动清理
+- 落盘日志带时间戳（`docker logs -t` / `kubectl logs --timestamps`），时间筛选可用；`Enter` 把选中的日志行文本输出到 stdout
 - **大日志窗口化预览**：超过 1MB 的文件不再拒绝预览，只渲染命中行前后 40/80 行的上下文窗口（真实行号 + `...` 跳过标记 + 长行折行），搜索命中自动定位
 - 搜索错误（非法正则、权限问题等）显示在状态栏；rg 退出码 1（无匹配）不误报为错误
+
+### 快照检索（--snapshot，兼容旧流程）
+
+`scx-rg docker --snapshot <名>` 走分离前的旧路径：一次性抓最近 100000 行快照到临时目录并进入既有检索界面（无跟随），快照文件退出自动清理；选择器内多选禁用，`Enter` 即单目标快照检索。
 
 ## 构建与运行
 
@@ -129,6 +160,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 | `Tab` | 切换 文件/内容 模式 |
 | `Ctrl+F` / `Alt+F` | 匹配行为切换：文件模式=精确（子串）/ 模糊；内容与全文回退=字面量（-F）/ 正则 |
 | `Ctrl+T` / `Alt+T` | 打开可视化筛选栏（时间范围 / 条数封顶 / git 仓库内含「仅改动/仅暂存」） |
+| `Ctrl+R` / `Alt+R` | `--snapshot` 检索会话：返回选择器重新选容器/Pod（选择器内同键=刷新列表；实时视图同键同义，见上文） |
 | `Ctrl+E` / `Alt+E` | 在编辑器打开选中文件到对应行（需配置 `[editor]`；有 `$NVIM` 时发送 quickfix） |
 | `:` | 命令面板（输入为空时；全部命令的无冲突入口） |
 | `Ctrl+G` / `Alt+G` | 搜索历史（`Enter` 回填执行 · `Del` 删除） |
@@ -147,7 +179,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 
 浏览器和堡垒机 Web 终端常在按键到达 SSH 会话前截获 Ctrl 组合键（`Ctrl+T` 新标签页、`Ctrl+F` 页内查找、`Ctrl+P` 打印、`Ctrl+R` 刷新页面……）。三层应对，按需取用：
 
-- **Alt 别名（内置）**：上表所有 Ctrl 功能键都有 `Alt+字母` 等价键（多选标记为 `Alt+M`），Alt 组合键浏览器与堡垒机基本都会透传。容器选择器内同样适用（`Alt+R` 刷新列表）
+- **Alt 别名（内置）**：上表所有 Ctrl 功能键都有 `Alt+字母` 等价键（多选标记为 `Alt+M`），Alt 组合键浏览器与堡垒机基本都会透传。容器选择器内同样适用（`Alt+R` 刷新列表；检索阶段 `Alt+R` 重选容器/Pod）
 - **命令面板（内置）**：输入为空按 `:` 打开，复制、翻页器、编辑器、blame、标记、筛选栏等**全部功能**都能从这里执行，只用普通字符键，天然免疫冲突
 - **环境侧（可选）**：浏览器安装 Shortkeys 类扩展屏蔽对应快捷键；把堡垒机页面装成 PWA/应用窗口（浏览器地址栏快捷键大多失效）；或改用原生 SSH 客户端连堡垒机跳转
 
@@ -164,11 +196,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o scx-rg-linux .
 
 ```
 时间   实时  全部  1分钟  5分钟  15分钟  1小时  6小时  24小时
-条数   全部  100条  500条  5000条
+条数   全部  20条  50条  100条  500条  5000条
 ```
 
 - `←` `→` 在预设间移动光标，**即时生效**；`↑` `↓`/`Tab` 切换两段；`Enter`/`Esc` 收起
-- **实时**：滑动窗口，只看最近 30 秒；配合 `--follow` 即实时日志窗——即使没有新日志写入，超窗的旧行也会随时间自动滚出列表，窗口每秒滑动一次
+- **实时**：滑动窗口，只看最近 30 秒；配合 `--follow` 即实时日志窗——即使没有新日志写入，超窗的旧行也会随时间自动滚出列表，窗口每秒滑动一次；**切到实时时条数若还停在「全部」会自动收窄为 50 条**（你在条数段手动选过档位则不覆盖）
 - **时间**：只显示行首时间戳在「过去 X 分钟/小时」内的行（自动识别 docker/kubectl 快照、`2026-08-20 10:00:00`、nginx、syslog 等常见格式）；无时间戳的行（多行堆栈续行）保留；检测不到时间戳时该段失效并提示
 - **条数**：只保留最新的 N 条命中（配合搜索词就是「最近 100 条 ERROR」）
 - 全部在客户端完成，不重新抓取日志；跟随模式（--follow）下每次刷新自动重新过滤，实时/时间窗随时间滑动；静态快照只按抓取时刻过滤一次（不滑动）
@@ -315,7 +347,7 @@ go test ./...
 - `internal/search`：模糊匹配评分/分词语义、rg --files 的 gitignore 行为、**rg --json 事件解析纯单测**（`parseRgLine`，不依赖真实 rg、CI 恒跑）、流式搜索与取消不泄漏、walk 忽略规则（skipDirs + 隐藏目录）
 - `internal/preview`：高亮行数对齐、CJK/emoji 折行、超长单行段数封顶（maxWrapSegments）、二进制嗅探、大文件窗口化、图片三档渲染与协议探测
 - `internal/tui`：流式结果追加、过期消息丢弃、新搜索重置状态（通过 drain 驱动 cmd 链模拟事件循环）、多选/帮助/finder/清理注入
-- **golden frame 快照**（`internal/tui/golden_test.go`）：`RenderOnce`/`View` 整帧去 ANSI 后与 `internal/tui/testdata/golden/*.txt` 逐字节对比（files 过滤、finder 详情、帮助浮层、多选标记、图片占位、Git 筛选栏、命令面板、搜索历史、blame 状态栏、AST 替换浮层十个场景，全部 rg-free 确定性渲染）。有意改动界面后刷新基线：
+- **golden frame 快照**（`internal/tui/golden_test.go` + `live_test.go`）：`RenderOnce`/`View` 整帧去 ANSI 后与 `internal/tui/testdata/golden/*.txt` 逐字节对比（files 过滤、finder 详情、帮助浮层、多选标记、图片占位、Git 筛选栏、命令面板、搜索历史、blame 状态栏、AST 替换浮层、实时分屏 1/2/4 面板十三个场景，全部 rg-free 确定性渲染）。有意改动界面后刷新基线：
 
 ```bash
 go test ./internal/tui -update   # 重新生成 golden 基线，人工审查 diff 后提交
