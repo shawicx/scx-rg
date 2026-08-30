@@ -11,3 +11,5 @@ RELEASE_NOTES.md
 # astro 文档站(docs/)
 docs/node_modules/
 docs/.astro/
+superpowers/
+.DS_Store
