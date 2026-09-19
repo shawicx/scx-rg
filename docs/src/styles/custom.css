@@ -1,0 +1,16 @@
+/* Markdown 表格列宽修复。
+   Starlight 表格为 display:block + overflow:auto + table-layout:auto：
+   CJK 文本可在任意字符间断行，min-content 仅一个字宽，长内容列（说明/操作方式）
+   会把短表头列压到单字宽——表头与首列短标签竖排换行。
+   - 表头 nowrap：表头列至少保持表头自身宽度，永不折行；
+   - 首列数据 min-width：短标签列（如「多容器实时日志」）不再被压成竖排，
+     长内容列（键位序列）本就超过该宽度，不受影响。
+   超宽表格仍由 Starlight 的 overflow:auto 横向滚动兜底。 */
+
+.sl-markdown-content table:not(:where(.not-content *)) th {
+	white-space: nowrap;
+}
+
+.sl-markdown-content table:not(:where(.not-content *)) td:first-child {
+	min-width: 7em;
+}

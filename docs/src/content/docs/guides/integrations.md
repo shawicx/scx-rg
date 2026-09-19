@@ -47,7 +47,7 @@ docker stop $(scx-rg --provider docker-ps)   # 组合用法
 
 ## shell 键绑定
 
-[examples/scx-rg.zsh](https://github.com/shawricx/scx-rg/blob/main/examples/scx-rg.zsh)(及 fish 版)提供 fzf 式键绑定:
+[examples/scx-rg.zsh](https://github.com/shawicx/scx-rg/blob/main/examples/scx-rg.zsh)(及 fish 版)提供 fzf 式键绑定:
 
 ```zsh
 # ~/.zshrc

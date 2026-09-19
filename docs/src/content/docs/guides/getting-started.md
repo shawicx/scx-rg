@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/shawricx/scx-rg/main/scripts/instal
 curl -fsSL https://raw.githubusercontent.com/shawricx/scx-rg/main/scripts/install.sh | sh -s -- --bin ~/.local/bin
 ```
 
-或手动从 [Releases](https://github.com/shawricx/scx-rg/releases) 下载对应平台的 `scx-rg_<版本>_<os>_<arch>.tar.gz`(macOS / Linux × amd64 / arm64):
+或手动从 [Releases](https://github.com/shawicx/scx-rg/releases) 下载对应平台的 `scx-rg_<版本>_<os>_<arch>.tar.gz`(macOS / Linux × amd64 / arm64):
 
 ```bash
 tar -xzf scx-rg_0.0.1_darwin_arm64.tar.gz

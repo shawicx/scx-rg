@@ -11,10 +11,11 @@ export default defineConfig({
   base: process.env.DOCS_BASE ?? '/',
   integrations: [
     starlight({
+      customCss: ['./src/styles/custom.css'],
       title: 'scx-rg',
       description: '终端里的实时搜索与日志检索工具',
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/shawricx/scx-rg' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/shawicx/scx-rg' },
       ],
       locales: {
         root: { label: '简体中文', lang: 'zh-CN' },
