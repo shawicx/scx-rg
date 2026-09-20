@@ -40,6 +40,7 @@ type livePanel struct {
 	vp     viewport.Model
 	follow bool // 贴底跟随：上翻暂停，回底恢复
 	exited bool // 流进程已收束（容器停止/出错）
+	dirty  bool // 上次视口重建后有新行入缓冲（显示 tick 合帧的重建依据）
 	w, h   int  // 面板外框尺寸（liveView 渲染用）
 }
 
@@ -62,6 +63,7 @@ func (p *livePanel) rebuild() {
 // 全新视口没有内容时 maxYOffset 恒 0，先设偏移会被 clamp 归零。
 func (p *livePanel) rebuildAt(keep int) {
 	p.vp.SetContentLines(p.buf)
+	p.dirty = false // 视口已与缓冲对齐
 	if p.follow || len(p.buf) == 0 {
 		p.vp.SetYOffset(max(0, len(p.buf)-p.vp.Height()))
 	} else {
@@ -99,7 +101,46 @@ type (
 		panel int
 		err   error
 	}
+	// liveDisplayTickMsg 显示节拍到点（seq 防跨会话串扰）。
+	liveDisplayTickMsg struct {
+		seq int
+	}
 )
+
+// liveDisplayInterval 显示节拍间隔：跟随态面板的视口重建统一合帧到此节奏，
+// 与日志到达速率解耦——SetContentLines 对全缓冲做宽度扫描，重建频率封顶后
+// 高频日志不再冲垮 Update 循环饿死输入。
+const liveDisplayInterval = 125 * time.Millisecond
+
+// liveDisplayTick 排下一个显示节拍。onceMode（同步驱动）与已退出/过期的
+// 会话立即收束：drain 会同步执行 cmd 链，真实定时器会让驱动器阻塞一个间隔。
+func (m *Model) liveDisplayTick() tea.Cmd {
+	seq := m.liveSeq
+	return func() tea.Msg {
+		if m.onceMode || !m.liveMode || seq != m.liveSeq {
+			return nil
+		}
+		return tea.Tick(liveDisplayInterval, func(time.Time) tea.Msg {
+			return liveDisplayTickMsg{seq: seq}
+		})()
+	}
+}
+
+// handleLiveDisplayTick 显示节拍到点：把本轮有新行（dirty）且处于跟随态的
+// 面板统一贴底重建（合帧），并续排下一个节拍。onceMode 的重建已在
+// liveLinesMsg 内联完成，这里不续排。
+func (m *Model) handleLiveDisplayTick(seq int) tea.Cmd {
+	if seq != m.liveSeq || !m.liveMode || m.onceMode {
+		return nil
+	}
+	for _, p := range m.livePanels {
+		if p.follow && p.dirty {
+			p.rebuild()
+			p.dirty = false
+		}
+	}
+	return m.liveDisplayTick()
+}
 
 // sendLive 向管线发消息：会话已无人读（退出/重选）时借 ctx.Done 放弃，
 // 防止 goroutine 永久阻塞泄漏。
@@ -216,7 +257,9 @@ func (m *Model) startLive(targets []logs.Target) tea.Cmd {
 		}(i)
 	}
 	m.resizeLivePanels()
-	return m.waitLiveLines(ch)
+	// 读链与显示链并行：批量行消息经 waitLiveLines 入缓冲，视口重建由
+	// 显示节拍合帧驱动（onceMode 下节拍立即收束，重建内联在行消息里）
+	return tea.Batch(m.waitLiveLines(ch), m.liveDisplayTick())
 }
 
 // stopLive 停止全部流进程并清实时状态（退出/回选择器）。
@@ -419,12 +462,11 @@ func (m *Model) handleLiveKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.gotoLiveBottom()
 		return m, nil
 	case "g", "home":
-		// 到顶即暂停跟随（顶部必然离开底部）。先对齐内容再置 0 与
-		// scrollLive/gotoLiveBottom 同理，偏移 0 并不免除对齐：暂停期间
-		// 新行只入缓冲不重建视口（liveLinesMsg 仅 follow 时 rebuild），
-		// 视口内容冻结在暂停时刻且 buf 可能已被环形窗口裁剪——直接对
-		// 旧内容 SetYOffset(0) 显示的是过期窗口顶，下次任何滚动按键
-		// 对齐内容后即跳变。
+		// 到顶即暂停跟随（顶部必然离开底部）。先对齐内容再置 0，与
+		// gotoLiveBottom 同理：暂停期间新行只入缓冲不重建视口（显示
+		// tick 只处理 follow 面板），视口内容冻结在暂停时刻且 buf 可能
+		// 已被环形窗口裁剪——直接对旧内容 SetYOffset(0) 显示的是过期
+		// 窗口顶，对齐后到顶才是当前缓冲的真实顶部。
 		if p := m.focusPanel(); p != nil {
 			p.follow = false
 			p.vp.SetContentLines(p.buf)
@@ -453,20 +495,20 @@ func (m *Model) focusPanelHeight() int {
 
 // scrollLive 滚动焦点面板并按是否贴底更新跟随标志：滚到底部自动恢复
 // 跟随（与 G 对称），离开底部即暂停。非焦点面板不由此函数触及，
-// 其 follow 恒真、新行 rebuild 自会贴底。
-// 暂停期间新行只入缓冲不重建视口（liveLinesMsg 仅 follow 时 rebuild），
-// 故先同步内容再算偏移——否则 maxY 按新缓冲计、SetYOffset 却被旧内容
-// clamp，滚动会停在过期底部。
+// 其 follow 恒真、显示 tick 自会贴底重建。
+// 滚动是纯偏移操作：视口内容冻结在最近一次同步（启动/resize/跟随态
+// 重建/G/g）时刻的快照上，不随缓冲增长重设——环形裁剪只动 buf 不动
+// 视口，同一偏移对应的可见行恒定，暂停期间按多少键都不会跳变。
+// maxY 同样按快照行数（TotalLineCount）计：滚到快照底即置跟随，实际
+// 贴底由显示 tick 在 ≤一个间隔内完成。SetYOffset 自按视口内容 clamp。
 func (m *Model) scrollLive(delta int) {
 	p := m.focusPanel()
-	if p == nil || len(p.buf) == 0 {
+	if p == nil || p.vp.TotalLineCount() == 0 {
 		return
 	}
-	p.vp.SetContentLines(p.buf)
-	maxY := max(0, len(p.buf)-p.vp.Height())
-	y := min(max(0, p.vp.YOffset()+delta), maxY)
-	p.vp.SetYOffset(y)
-	p.follow = y >= maxY
+	p.vp.SetYOffset(p.vp.YOffset() + delta)
+	maxY := max(0, p.vp.TotalLineCount()-p.vp.Height())
+	p.follow = p.vp.YOffset() >= maxY
 }
 
 // gotoLiveBottom 焦点面板回底并恢复跟随。容器安静（暂停后再无新行）

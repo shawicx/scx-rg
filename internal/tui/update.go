@@ -84,10 +84,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		p := m.livePanels[msg.panel]
 		p.appendLines(msg.lines)
-		if p.follow {
-			p.rebuild()
+		if m.onceMode {
+			// 同步驱动（测试/--once）：无显示 tick，跟随态内联重建保证帧可见
+			if p.follow {
+				p.rebuild()
+			}
+		} else {
+			p.dirty = true // 真实循环：只入缓冲置脏，重建统一由显示 tick 合帧
 		}
 		return m, m.waitLiveLines(m.liveCh)
+
+	case liveDisplayTickMsg:
+		return m, m.handleLiveDisplayTick(msg.seq)
 
 	case liveDoneMsg:
 		if msg.seq != m.liveSeq || msg.panel >= len(m.livePanels) {

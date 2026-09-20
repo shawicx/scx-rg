@@ -229,6 +229,126 @@ func TestLiveGolden(t *testing.T) {
 	}))
 }
 
+// TestLivePausedScrollKeepsSnapshot 暂停态滚动是纯偏移操作：视口内容冻结为
+// 暂停时刻的快照，环形窗口裁剪不得改变滚动中的可见内容。旧实现每次按键
+// SetContentLines 对齐新缓冲，裁剪发生后同偏移内容前移——按一下跳几千行。
+func TestLivePausedScrollKeepsSnapshot(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}},
+		func(ctx context.Context, tgt logs.Target, tail int, path string, onLine func(string)) error {
+			for i := 0; i < 60; i++ {
+				onLine(fmt.Sprintf("line-%02d", i))
+			}
+			return nil
+		})
+	m.drain(m.Init())
+	p := m.livePanels[0]
+	p.follow = false
+	p.vp.SetYOffset(10)                  // 快照中部（ maxY=60-视口高>10）：保证下滚不触底
+	flood := make([]string, logWindow+1) // 强制环形裁剪：头部旧行被丢弃
+	for i := range flood {
+		flood[i] = fmt.Sprintf("flood-%04d", i)
+	}
+	_, _ = m.Update(liveLinesMsg{seq: m.liveSeq, panel: 0, lines: flood})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'j'}) // 下滚一行：纯偏移，内容不重设
+	if p.follow {
+		t.Fatal("快照中部下滚不应恢复跟随")
+	}
+	if got := p.vp.TotalLineCount(); got != 60 {
+		t.Fatalf("滚动不应重设视口内容（快照仍 60 行）, got %d", got)
+	}
+	if p.vp.YOffset() != 11 {
+		t.Fatalf("下滚一行应为偏移 11, got %d", p.vp.YOffset())
+	}
+	if got := p.vp.GetContent(); !strings.Contains(got, "line-00") {
+		t.Fatalf("快照应保留暂停时刻的旧行（含 line-00）, got %q", got)
+	}
+}
+
+// TestLiveScrollToBottomResumesFollow 下滚触及快照底部即恢复跟随（与 G 对称）；
+// 恢复后由显示 tick 在 ≤一个 tick 内对齐最新缓冲。
+func TestLiveScrollToBottomResumesFollow(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}},
+		func(ctx context.Context, tgt logs.Target, tail int, path string, onLine func(string)) error {
+			for i := 0; i < 60; i++ {
+				onLine(fmt.Sprintf("line-%02d", i))
+			}
+			return nil
+		})
+	m.drain(m.Init())
+	p := m.livePanels[0]
+	p.follow = false
+	p.vp.SetYOffset(30)
+	m.scrollLive(1000)
+	if !p.follow {
+		t.Fatal("触及快照底部应恢复跟随")
+	}
+	if want := max(0, 60-p.vp.Height()); p.vp.YOffset() != want {
+		t.Fatalf("应停在快照底部: y=%d want=%d", p.vp.YOffset(), want)
+	}
+}
+
+// TestLiveFollowCoalescesOnDisplayTick follow 态新行不再逐批重建视口：
+// liveLinesMsg 只入缓冲置脏，显示 tick 统一贴底重建——渲染节奏与日志
+// 速率解耦（高頻批量不再以每批一次全量重建冲垮 Update）。
+func TestLiveFollowCoalescesOnDisplayTick(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}},
+		func(ctx context.Context, tgt logs.Target, tail int, path string, onLine func(string)) error {
+			for i := 0; i < 60; i++ {
+				onLine(fmt.Sprintf("line-%02d", i))
+			}
+			return nil
+		})
+	m.drain(m.Init())
+	p := m.livePanels[0]
+	if !p.follow {
+		t.Fatal("前置失效：初始应贴底跟随")
+	}
+	m.onceMode = false // 真实事件循环语义：重建走显示 tick
+	_, _ = m.Update(liveLinesMsg{seq: m.liveSeq, panel: 0, lines: []string{"new-1"}})
+	_, _ = m.Update(liveLinesMsg{seq: m.liveSeq, panel: 0, lines: []string{"new-2"}})
+	if got := p.vp.TotalLineCount(); got != 60 {
+		t.Fatalf("follow 态批量到达只应入缓冲不重建, got 视口 %d 行", got)
+	}
+	if len(p.buf) != 62 {
+		t.Fatalf("两批应先后入缓冲, got %d", len(p.buf))
+	}
+	_, _ = m.Update(liveDisplayTickMsg{seq: m.liveSeq})
+	if got := p.vp.TotalLineCount(); got != 62 {
+		t.Fatalf("tick 后应贴底重建含新行, got 视口 %d 行", got)
+	}
+	if want := max(0, len(p.buf)-p.vp.Height()); p.vp.YOffset() != want || !p.follow {
+		t.Fatalf("tick 后应贴底: y=%d want=%d follow=%v", p.vp.YOffset(), want, p.follow)
+	}
+}
+
+// TestLiveDisplayTickLifecycle 显示 tick 的生命周期：onceMode 下 tick 立即
+// 收束（同步驱动器不可被真实定时器阻塞）、过期 seq 丢弃不续链、有效 tick
+// 续排下一个、退出实时后收束。
+func TestLiveDisplayTickLifecycle(t *testing.T) {
+	m := newLiveModel(t, []logs.Target{{Kind: "docker", Name: "web"}},
+		fakeStream(map[string][]string{"web": {"l"}}))
+	m.drain(m.Init())
+	if msg := m.liveDisplayTick()(); msg != nil {
+		t.Fatal("onceMode 下 tick 应立即返回 nil")
+	}
+	if _, cmd := m.Update(liveDisplayTickMsg{seq: m.liveSeq - 1}); cmd != nil {
+		t.Fatal("过期 seq 的 tick 应丢弃且不续链")
+	}
+	_, cmd := m.Update(liveDisplayTickMsg{seq: m.liveSeq})
+	if cmd != nil {
+		t.Fatal("onceMode 下有效 tick 重建但不续链")
+	}
+	m.onceMode = false
+	_, cmd = m.Update(liveDisplayTickMsg{seq: m.liveSeq})
+	if cmd == nil {
+		t.Fatal("真实模式下有效 tick 应回排下一个 tick")
+	}
+	m.liveMode = false
+	if _, cmd := m.Update(liveDisplayTickMsg{seq: m.liveSeq}); cmd != nil {
+		t.Fatal("退出实时后 tick 应回 nil 收束")
+	}
+}
+
 // longStream 写 n 行后长驻到 ctx 取消（模拟运行中的容器）：
 // drain 靠 liveDrainWait 限时收束读链，不走流自然结束路径。
 func longStream(n int) func(context.Context, logs.Target, int, string, func(string)) error {
