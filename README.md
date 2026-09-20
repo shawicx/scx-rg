@@ -2,16 +2,16 @@
 
 终端里的实时搜索 + 预览工具。Go + [Bubble Tea](https://github.com/charmbracelet/bubbletea) + [Lipgloss](https://github.com/charmbracelet/lipgloss)。
 
-📖 **在线文档**(用户指南/键位/配置/FAQ):[shawricx.github.io/scx-rg](https://shawricx.github.io/scx-rg)(源码在 [docs/](docs/,Astro Starlight,`npm run dev` 本地预览));架构与代码导航见 [.wiki/](.wiki/README.md)。
+📖 **在线文档**(用户指南/键位/配置/FAQ):[shawicx.github.io/scx-rg](https://shawicx.github.io/scx-rg)(源码在 [docs/](docs/,Astro Starlight,`npm run dev` 本地预览));架构与代码导航见 [.wiki/](.wiki/README.md)。
 
 ## 安装
 
 一键安装（自动识别平台，下载最新 Release 并校验 sha256，装到 /usr/local/bin）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shawricx/scx-rg/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/shawicx/scx-rg/main/scripts/install.sh | sh
 # 或装到自定义目录
-curl -fsSL https://raw.githubusercontent.com/shawricx/scx-rg/main/scripts/install.sh | sh -s -- --bin ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/shawicx/scx-rg/main/scripts/install.sh | sh -s -- --bin ~/.local/bin
 ```
 
 或手动从 [Releases](https://github.com/shawicx/scx-rg/releases) 下载对应平台的 `scx-rg_<版本>_<os>_<arch>.tar.gz`（macOS / Linux × amd64 / arm64）：

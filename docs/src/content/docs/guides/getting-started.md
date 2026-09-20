@@ -8,9 +8,9 @@ description: 安装 scx-rg、跑起来第一次搜索。
 一键安装(自动识别平台,下载最新 Release 并校验 sha256,装到 `/usr/local/bin`):
 
 ```bash wrap
-curl -fsSL https://raw.githubusercontent.com/shawricx/scx-rg/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/shawicx/scx-rg/main/scripts/install.sh | sh
 # 或装到自定义目录
-curl -fsSL https://raw.githubusercontent.com/shawricx/scx-rg/main/scripts/install.sh | sh -s -- --bin ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/shawicx/scx-rg/main/scripts/install.sh | sh -s -- --bin ~/.local/bin
 ```
 
 或手动从 [Releases](https://github.com/shawicx/scx-rg/releases) 下载对应平台的 `scx-rg_<版本>_<os>_<arch>.tar.gz`(macOS / Linux × amd64 / arm64):

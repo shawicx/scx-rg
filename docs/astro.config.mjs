@@ -7,7 +7,7 @@ import starlight from '@astrojs/starlight';
 export default defineConfig({
   // 本地 dev/preview 直接跑在根路径;部署到 GitHub Pages 项目站点时由
   // CI 注入 DOCS_BASE=/scx-rg(.github/workflows/docs.yml),两端 URL 都正确。
-  site: 'https://shawricx.github.io',
+  site: 'https://shawicx.github.io',
   base: process.env.DOCS_BASE ?? '/',
   integrations: [
     starlight({

@@ -1,11 +1,11 @@
 #!/bin/sh
 # scx-rg 一键安装：从 GitHub Releases 下载对应平台的压缩包并校验安装。
 # 用法：
-#   curl -fsSL https://raw.githubusercontent.com/shawricx/scx-rg/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/shawicx/scx-rg/main/scripts/install.sh | sh
 #   curl -fsSL ... | sh -s -- --bin ~/.local/bin   # 自定义安装目录
 set -eu
 
-REPO="shawricx/scx-rg"
+REPO="shawicx/scx-rg"
 BIN_DIR="/usr/local/bin"
 
 while [ $# -gt 0 ]; do
