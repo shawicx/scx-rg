@@ -21,12 +21,12 @@ ARCH=$(uname -m)
 case "$OS" in
   Darwin) GOOS=darwin ;;
   Linux)  GOOS=linux ;;
-  *) echo "不支持的操作系统: $OS（支持 darwin/linux）" >&2; exit 1 ;;
+  *) echo "不支持的操作系统: ${OS}（支持 darwin/linux）" >&2; exit 1 ;;
 esac
 case "$ARCH" in
   x86_64|amd64) GOARCH=amd64 ;;
   aarch64|arm64) GOARCH=arm64 ;;
-  *) echo "不支持的架构: $ARCH（支持 amd64/arm64）" >&2; exit 1 ;;
+  *) echo "不支持的架构: ${ARCH}（支持 amd64/arm64）" >&2; exit 1 ;;
 esac
 
 # ---------- 依赖检查 ----------
@@ -47,7 +47,7 @@ VER=${TAG#v}
 ARCHIVE="scx-rg_${VER}_${GOOS}_${GOARCH}.tar.gz"
 CHECKSUMS="scx-rg_${VER}_checksums.txt"
 BASE="https://github.com/$REPO/releases/download/$TAG"
-echo "最新版本: $TAG（$GOOS/$GOARCH）"
+echo "最新版本: ${TAG}（${GOOS}/${GOARCH}）"
 
 # ---------- 下载与校验 ----------
 TMP=$(mktemp -d)
